@@ -1,0 +1,389 @@
+# Agent Memory Infrastructure - Product Specification
+# Version: 1.0.0
+# Status: Draft
+# Created: 2026-03-04
+
+product:
+  name: "Memex"
+  tagline: "Persistent Memory for AI Agents"
+  description: |
+    A memory infrastructure platform that gives AI coding assistants persistent,
+    auditable, developer-controlled context across sessions, projects, and tools.
+
+    Initial distribution via Claude Code plugin, with MCP server and API for
+    multi-tool support.
+
+  problem_statement: |
+    LLM-based coding assistants are stateless by design:
+    - Lose context across sessions (start from zero every time)
+    - Forget project conventions and past decisions
+    - Repeat known mistakes
+    - Can't build on previous work
+    - No institutional knowledge accumulation
+
+    This wastes developer time re-explaining context and leads to inconsistent
+    AI behavior across sessions.
+
+  solution: |
+    A standalone memory infrastructure that:
+    1. Persists context across sessions (automatic)
+    2. Learns project conventions over time (adaptive)
+    3. Provides explicit memory controls (developer agency)
+    4. Maintains full audit trail (trust)
+    5. Works across tools via MCP protocol (portable)
+
+  target_users:
+    primary:
+      - Claude Code power users
+      - Developers working on long-term projects
+      - Teams wanting consistent AI behavior
+    secondary:
+      - Cursor/Windsurf users (via MCP)
+      - Enterprise teams needing audit trails
+      - Developers with multiple projects
+
+---
+# Value Proposition
+
+value_proposition:
+  for_developers:
+    - "Your AI remembers your project, not just your prompt"
+    - "Never re-explain your codebase architecture again"
+    - "Context builds over time, making AI more useful"
+    - "Full control: see, edit, delete what AI remembers"
+
+  for_teams:
+    - "Shared AI memory across team members"
+    - "Onboarding: new devs inherit team's AI context"
+    - "Consistent AI behavior across the team"
+    - "Audit trail for compliance"
+
+  trust_mechanisms:
+    - Explicit memory: developer controls what's stored
+    - Transparent recall: see exactly what AI retrieved
+    - Audit log: full history of memory operations
+    - Forget controls: delete anything, anytime
+    - Local-first option: self-host for sensitive projects
+
+---
+# Feature Specification
+
+features:
+  # Phase 1: Claude Code Plugin (MVP)
+  phase_1_plugin:
+    target: "4 weeks to MVP"
+
+    automatic_session_memory:
+      description: "Automatically persist session context"
+      behavior:
+        - End of session: extract key decisions, code changes, context
+        - Start of session: retrieve relevant context for current work
+        - Continuous: update memory as session progresses
+      storage:
+        - Session summaries (compressed)
+        - Key decisions and rationale
+        - Code patterns observed
+        - Errors encountered and solutions
+      trust:
+        - Show "Memory Retrieved" indicator
+        - Link to audit log
+        - "Forget this session" option
+
+    project_memory:
+      description: "Learn project-specific conventions"
+      auto_learned:
+        - File structure patterns
+        - Naming conventions
+        - Common imports/dependencies
+        - Test patterns
+        - Error handling patterns
+      explicit:
+        - "Remember: we use X pattern for Y"
+        - "Remember: never do Z in this project"
+        - Project-specific terminology
+      storage:
+        - Per-project memory store
+        - Versioned (can rollback)
+        - Exportable/importable
+
+    explicit_memory_commands:
+      description: "Developer-controlled memory operations"
+      commands:
+        remember:
+          syntax: "/memex remember <content>"
+          example: "/memex remember We decided to use JWT for auth, not sessions"
+          behavior: "Store as permanent memory with high retrieval priority"
+
+        recall:
+          syntax: "/memex recall <query>"
+          example: "/memex recall What did we decide about authentication?"
+          behavior: "Search memory and return relevant context"
+
+        forget:
+          syntax: "/memex forget <query|all|session>"
+          example: "/memex forget authentication decisions"
+          behavior: "Delete matching memories (with confirmation)"
+
+        show:
+          syntax: "/memex show [recent|all|search <query>]"
+          example: "/memex show recent"
+          behavior: "Display stored memories for inspection"
+
+        export:
+          syntax: "/memex export <path>"
+          behavior: "Export project memory to JSON file"
+
+        import:
+          syntax: "/memex import <path>"
+          behavior: "Import memory from JSON file"
+
+    context_injection:
+      description: "Automatically inject relevant memory into AI context"
+      trigger: "Every AI interaction"
+      behavior:
+        - Analyze current prompt/task
+        - Retrieve relevant memories (semantic search)
+        - Inject as system context
+        - Track what was retrieved (for transparency)
+      limits:
+        - Max context injection: 2000 tokens
+        - Relevance threshold: 0.7 similarity
+        - Recency boost: recent memories weighted higher
+
+    trust_dashboard:
+      description: "Transparency into AI memory"
+      features:
+        - View all stored memories
+        - See retrieval history
+        - Audit log of all operations
+        - Storage usage stats
+        - Memory health indicators
+
+  # Phase 2: Enhanced Features
+  phase_2_enhanced:
+    target: "8 weeks"
+
+    team_memory:
+      description: "Shared memory across team members"
+      features:
+        - Team workspace with shared project memory
+        - Personal memory layer (not shared)
+        - Role-based access controls
+        - Sync across team members
+      privacy:
+        - Personal memories never shared
+        - Team memories require explicit sharing
+        - Admin controls for sensitive projects
+
+    cross_project_learning:
+      description: "Apply learnings across projects"
+      features:
+        - "I always use X pattern" → applies to all projects
+        - Technology-specific memory (React patterns, Go idioms)
+        - Portable developer preferences
+      isolation:
+        - Project secrets never cross boundaries
+        - Only patterns/preferences transfer
+
+    smart_forgetting:
+      description: "Automatic memory management"
+      features:
+        - Decay old, unused memories
+        - Consolidate redundant memories
+        - Archive vs delete options
+        - Storage quota management
+
+  # Phase 3: Platform Features
+  phase_3_platform:
+    target: "16 weeks"
+
+    mcp_server:
+      description: "Serve memory to any MCP-compatible tool"
+      protocol: "Model Context Protocol"
+      tools_supported:
+        - Cursor
+        - Windsurf
+        - Continue
+        - Custom MCP clients
+
+    rest_api:
+      description: "Direct API access for enterprise"
+      use_cases:
+        - Custom integrations
+        - CI/CD memory injection
+        - Analytics and reporting
+        - Bulk operations
+
+    self_hosted:
+      description: "On-premise deployment for enterprise"
+      features:
+        - Docker/Kubernetes deployment
+        - Air-gapped support
+        - Custom storage backends
+        - SSO integration
+
+---
+# User Experience
+
+ux:
+  first_run:
+    - Install plugin
+    - "Memex is now learning your project" notification
+    - Optional tour of memory commands
+    - No configuration required (works out of box)
+
+  daily_use:
+    - Invisible by default (just works)
+    - "Memory retrieved" subtle indicator when context injected
+    - Explicit commands when needed
+    - Dashboard for power users
+
+  memory_indicators:
+    - Subtle icon when memory is being used
+    - Expandable to see what was retrieved
+    - Link to full audit log
+
+  error_states:
+    - Memory service unavailable: graceful degradation (works without memory)
+    - Storage full: warning + suggestions
+    - Sync conflict: manual resolution UI
+
+---
+# Monetization
+
+pricing:
+  local_tier:
+    name: "Local"
+    price: "FREE forever"
+    description: "Run entirely on your machine, no cloud, no limits"
+    features:
+      - Unlimited memory retention
+      - Unlimited projects
+      - Unlimited storage (your disk)
+      - SQLite backend (no external DB needed)
+      - Full feature parity with cloud
+      - Works offline
+      - Zero data leaves your machine
+    limitations:
+      - Single device only
+      - No cross-device sync
+      - No team sharing
+      - Self-managed backups
+    purpose: "Privacy-conscious developers, offline work, trying before cloud"
+    deployment: "Plugin includes embedded SQLite, zero setup"
+
+  pro_tier:
+    name: "Pro"
+    price: "$19/month"
+    description: "Cloud sync for individuals"
+    features:
+      - Everything in Local
+      - Cloud sync across devices
+      - 10 projects
+      - 1GB cloud storage
+      - Automatic backups
+      - Web dashboard
+    purpose: "Professional developers, multiple machines"
+
+  team_tier:
+    name: "Team"
+    price: "$29/month per seat (min 3)"
+    description: "Shared project memory across team"
+    features:
+      - Everything in Pro
+      - Shared project database
+      - Team members see same memories
+      - Role-based access (owner, member, viewer)
+      - New devs inherit project knowledge
+      - Admin dashboard
+      - Priority support
+    value_prop: |
+      When a teammate remembers "we use JWT for auth",
+      everyone on the project sees it. Onboarding becomes instant.
+    purpose: "Development teams wanting consistent AI behavior"
+
+  enterprise_tier:
+    name: "Enterprise"
+    price: "Custom (contact sales)"
+    description: "Company-wide shared knowledge base"
+    features:
+      - Everything in Team
+      - Company-wide memory database
+      - Cross-project knowledge sharing
+      - "Company patterns" that apply everywhere
+      - SSO/SAML authentication
+      - Audit log export & compliance
+      - SLA guarantees (99.9% uptime)
+      - Dedicated support
+      - Self-hosted option available
+      - Custom retention policies
+      - Data residency options
+    value_prop: |
+      Company conventions learned once, applied everywhere.
+      "At Acme, we always use X pattern" becomes institutional knowledge
+      that every AI assistant knows across all projects.
+    purpose: "Large organizations, regulated industries, institutional knowledge"
+
+---
+# Success Metrics
+
+metrics:
+  north_star: "Weekly Active Projects with Memory"
+
+  activation:
+    - Plugin installed
+    - First memory stored (auto or explicit)
+    - First memory retrieved
+    - Return usage in second session
+
+  engagement:
+    - Sessions per week
+    - Memories stored per project
+    - Memory retrievals per session
+    - Explicit commands used
+
+  retention:
+    - 7-day retention
+    - 30-day retention
+    - Paid conversion rate
+
+  quality:
+    - Memory relevance (user feedback)
+    - Context injection usefulness
+    - False positive rate (irrelevant memories)
+
+---
+# Risks and Mitigations
+
+risks:
+  privacy_concerns:
+    risk: "Developers worried about code/context being stored"
+    mitigation:
+      - Local-first storage option
+      - End-to-end encryption
+      - Clear data deletion
+      - Transparent about what's stored
+      - Self-hosted option
+
+  storage_costs:
+    risk: "Vector embeddings are expensive to store"
+    mitigation:
+      - Tiered storage (hot/cold)
+      - Compression for older memories
+      - Smart pruning
+      - Capped storage per tier
+
+  relevance_quality:
+    risk: "Wrong memories retrieved, confusing AI"
+    mitigation:
+      - High relevance threshold
+      - User feedback loop
+      - Continuous tuning
+      - "Why was this retrieved?" explainability
+
+  claude_code_dependency:
+    risk: "Single platform dependency"
+    mitigation:
+      - MCP server in Phase 2
+      - REST API in Phase 3
+      - Architecture supports any client

@@ -1,0 +1,466 @@
+# Memex MCP Server Specification
+# Version: 1.0.0
+# PRIMARY INTERFACE - Claude Code accesses memory via MCP
+
+design_principles:
+  - "NO external LLM - Claude IS the intelligence"
+  - "MCP is the primary interface, plugin/skill are wrappers"
+  - "Full-text search provides candidates, Claude does semantic matching"
+  - "Simple storage, smart retrieval via Claude's native capabilities"
+
+---
+# Architecture Overview
+
+architecture:
+  diagram: |
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │                      CLAUDE CODE                                     │
+    │                   (The Intelligence)                                 │
+    │                                                                      │
+    │  Claude naturally understands context, relevance, and meaning.      │
+    │  No external LLM needed - Claude IS the semantic engine.            │
+    └───────────────────────────┬─────────────────────────────────────────┘
+                                │
+            ┌───────────────────┼───────────────────┐
+            │                   │                   │
+            ▼                   ▼                   ▼
+    ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+    │  MCP Server   │   │    Skill      │   │    Plugin     │
+    │  (PRIMARY)    │   │  (Wrapper)    │   │  (Wrapper)    │
+    │               │   │               │   │               │
+    │  - Tools      │   │  /memex cmd   │   │  Commands     │
+    │  - Resources  │   │  calls MCP    │   │  call MCP     │
+    │  - Prompts    │   │               │   │               │
+    └───────┬───────┘   └───────┬───────┘   └───────┬───────┘
+            │                   │                   │
+            └───────────────────┴───────────────────┘
+                                │
+                    ┌───────────▼───────────┐
+                    │    Go Backend API     │
+                    │                       │
+                    │  - Full-text search   │
+                    │  - CRUD operations    │
+                    │  - NO embeddings      │
+                    │  - NO external LLM    │
+                    └───────────┬───────────┘
+                                │
+                    ┌───────────▼───────────┐
+                    │  Storage Layer        │
+                    │                       │
+                    │  Local: SQLite + FTS5 │
+                    │  Cloud: PostgreSQL    │
+                    │         + tsvector    │
+                    └───────────────────────┘
+
+  key_insight: |
+    Claude Code already has semantic understanding built-in.
+    We don't need embeddings or another LLM.
+
+    The MCP server provides:
+    1. Storage (save/retrieve memories)
+    2. Full-text search (find candidates)
+    3. Filtering (by project, tags, time)
+
+    Claude provides:
+    1. Semantic understanding (what's relevant?)
+    2. Context injection (how to use memories?)
+    3. Natural language interface (user intent)
+
+---
+# MCP Server Specification
+
+mcp_server:
+  name: "memex"
+  version: "1.0.0"
+  transport: "stdio"
+  language: "Go"
+
+  # MCP Tools - Actions Claude can take
+  tools:
+    memex_remember:
+      description: "Store a memory for later recall"
+      parameters:
+        content:
+          type: "string"
+          description: "The content to remember"
+          required: true
+        tags:
+          type: "array"
+          items: "string"
+          description: "Tags for categorization"
+        priority:
+          type: "string"
+          enum: ["low", "normal", "high"]
+          default: "normal"
+        project:
+          type: "string"
+          description: "Project identifier (default: current directory)"
+      returns:
+        memory_id: "string"
+        created_at: "datetime"
+
+    memex_recall:
+      description: "Search memories by query"
+      parameters:
+        query:
+          type: "string"
+          description: "Search query (full-text)"
+          required: true
+        limit:
+          type: "integer"
+          default: 10
+          max: 50
+        tags:
+          type: "array"
+          items: "string"
+          description: "Filter by tags"
+        project:
+          type: "string"
+        since:
+          type: "datetime"
+          description: "Only memories after this date"
+      returns:
+        memories:
+          type: "array"
+          items:
+            id: "string"
+            content: "string"
+            tags: "array"
+            priority: "string"
+            created_at: "datetime"
+            relevance_score: "float"
+
+    memex_forget:
+      description: "Delete a memory"
+      parameters:
+        memory_id:
+          type: "string"
+          description: "ID of memory to delete"
+          required: true
+      returns:
+        deleted: "boolean"
+
+    memex_list:
+      description: "List recent memories"
+      parameters:
+        limit:
+          type: "integer"
+          default: 20
+        project:
+          type: "string"
+        tags:
+          type: "array"
+      returns:
+        memories: "array"
+
+    memex_update:
+      description: "Update an existing memory"
+      parameters:
+        memory_id:
+          type: "string"
+          required: true
+        content:
+          type: "string"
+        tags:
+          type: "array"
+        priority:
+          type: "string"
+      returns:
+        memory: "object"
+
+    memex_stats:
+      description: "Get memory statistics"
+      parameters:
+        project:
+          type: "string"
+      returns:
+        total_memories: "integer"
+        by_priority: "object"
+        by_tag: "object"
+        storage_bytes: "integer"
+
+  # MCP Resources - Data Claude can read
+  resources:
+    project_memories:
+      uri_template: "memex://project/{project_id}/memories"
+      description: "All memories for a project"
+      mime_type: "application/json"
+
+    recent_memories:
+      uri_template: "memex://recent?limit={limit}"
+      description: "Recent memories across all projects"
+      mime_type: "application/json"
+
+    memory_by_id:
+      uri_template: "memex://memory/{memory_id}"
+      description: "Single memory by ID"
+      mime_type: "application/json"
+
+    project_context:
+      uri_template: "memex://project/{project_id}/context"
+      description: "Curated context for current project"
+      mime_type: "text/plain"
+
+  # MCP Prompts - Pre-built prompt templates
+  prompts:
+    with_memory:
+      name: "with_memory"
+      description: "Include relevant project memories in response"
+      arguments:
+        query:
+          description: "What to search for in memories"
+          required: true
+
+    remember_decision:
+      name: "remember_decision"
+      description: "Store a decision or pattern for future reference"
+      arguments:
+        decision:
+          description: "The decision or pattern to remember"
+          required: true
+
+---
+# Skill Specification (Wrapper around MCP)
+
+skill:
+  name: "memex"
+  description: "Persistent memory for Claude Code sessions"
+
+  commands:
+    "/memex remember <content>":
+      action: "Call memex_remember MCP tool"
+      example: "/memex remember We use PostgreSQL with pgvector"
+
+    "/memex recall <query>":
+      action: "Call memex_recall MCP tool, Claude interprets results"
+      example: "/memex recall What database do we use?"
+
+    "/memex forget <id>":
+      action: "Call memex_forget MCP tool"
+      example: "/memex forget mem_abc123"
+
+    "/memex list":
+      action: "Call memex_list MCP tool"
+
+    "/memex stats":
+      action: "Call memex_stats MCP tool"
+
+  auto_behaviors:
+    session_end:
+      trigger: "When Claude Code session ends"
+      action: |
+        If significant decisions were made, prompt user:
+        "Would you like me to remember: [decision]?"
+        If yes, call memex_remember
+
+    context_loading:
+      trigger: "When starting work on a project"
+      action: |
+        Call memex_list for current project
+        Claude naturally incorporates relevant context
+
+---
+# Plugin Specification (Wrapper around MCP)
+
+plugin:
+  name: "memex"
+  type: "Claude Code Plugin"
+
+  purpose: |
+    Thin wrapper providing:
+    1. Nice UI indicators
+    2. Slash command aliases
+    3. Configuration management
+    All actual functionality via MCP server
+
+  components:
+    commands:
+      description: "Aliases to MCP tools"
+      maps_to: "MCP tools via SDK"
+
+    ui:
+      memory_indicator:
+        location: "Status bar"
+        shows: "Memory count, connection status"
+
+      context_panel:
+        trigger: "Click indicator"
+        shows: "Recent memories, quick actions"
+
+    config:
+      storage: "~/.memex/config.json"
+      settings:
+        - mode: "local | cloud"
+        - api_endpoint: "URL (for cloud)"
+        - api_key: "encrypted"
+        - project_detection: "git | directory | manual"
+
+---
+# Search Strategy (No Embeddings)
+
+search:
+  strategy: "Full-text search + Claude semantic understanding"
+
+  how_it_works:
+    1: "User asks question or Claude needs context"
+    2: "MCP tool extracts keywords from query"
+    3: "Full-text search returns candidate memories"
+    4: "Claude reads candidates and picks relevant ones"
+    5: "Claude incorporates relevant memories naturally"
+
+  full_text_engine:
+    sqlite: "FTS5 with porter stemmer"
+    postgresql: "tsvector with english dictionary"
+
+  ranking_factors:
+    - "Full-text relevance score"
+    - "Recency (newer = higher)"
+    - "Priority (high > normal > low)"
+    - "Retrieval count (frequently used = higher)"
+
+  example_flow: |
+    User: "How should I handle authentication?"
+
+    1. Claude calls: memex_recall(query="authentication")
+    2. Backend returns 5 memories mentioning "auth"
+    3. Claude reads them, sees: "We decided to use JWT"
+    4. Claude incorporates this in response naturally
+
+    No embeddings needed - Claude understands context.
+
+---
+# Local Mode (SQLite + FTS5)
+
+local_mode:
+  database: "SQLite 3.45+"
+  full_text: "FTS5 extension"
+  location: "~/.memex/memex.db"
+
+  schema: |
+    -- Main memories table
+    CREATE TABLE memories (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      tags TEXT, -- JSON array
+      priority TEXT DEFAULT 'normal',
+      retrieval_count INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- FTS5 virtual table for full-text search
+    CREATE VIRTUAL TABLE memories_fts USING fts5(
+      content,
+      tags,
+      content='memories',
+      content_rowid='rowid',
+      tokenize='porter unicode61'
+    );
+
+    -- Triggers to keep FTS in sync
+    CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN
+      INSERT INTO memories_fts(rowid, content, tags)
+      VALUES (new.rowid, new.content, new.tags);
+    END;
+
+    CREATE TRIGGER memories_ad AFTER DELETE ON memories BEGIN
+      INSERT INTO memories_fts(memories_fts, rowid, content, tags)
+      VALUES('delete', old.rowid, old.content, old.tags);
+    END;
+
+    CREATE TRIGGER memories_au AFTER UPDATE ON memories BEGIN
+      INSERT INTO memories_fts(memories_fts, rowid, content, tags)
+      VALUES('delete', old.rowid, old.content, old.tags);
+      INSERT INTO memories_fts(rowid, content, tags)
+      VALUES (new.rowid, new.content, new.tags);
+    END;
+
+  search_query: |
+    SELECT
+      m.id,
+      m.content,
+      m.tags,
+      m.priority,
+      m.created_at,
+      bm25(memories_fts) as relevance
+    FROM memories m
+    JOIN memories_fts ON m.rowid = memories_fts.rowid
+    WHERE memories_fts MATCH ?
+      AND m.project_id = ?
+    ORDER BY
+      relevance,
+      m.priority DESC,
+      m.created_at DESC
+    LIMIT ?;
+
+---
+# Cloud Mode (PostgreSQL + tsvector)
+
+cloud_mode:
+  database: "PostgreSQL 16+"
+  full_text: "Built-in tsvector"
+
+  schema_additions: |
+    -- Add tsvector column
+    ALTER TABLE memories ADD COLUMN
+      search_vector tsvector
+      GENERATED ALWAYS AS (
+        to_tsvector('english', content)
+      ) STORED;
+
+    -- GIN index for fast search
+    CREATE INDEX memories_search_idx
+      ON memories USING GIN(search_vector);
+
+  search_query: |
+    SELECT
+      id,
+      content,
+      tags,
+      priority,
+      created_at,
+      ts_rank(search_vector, query) as relevance
+    FROM memories,
+         plainto_tsquery('english', $1) query
+    WHERE search_vector @@ query
+      AND project_id = $2
+    ORDER BY
+      relevance DESC,
+      priority DESC,
+      created_at DESC
+    LIMIT $3;
+
+---
+# Why No Embeddings
+
+rationale:
+  problem_with_embeddings:
+    - "Requires external LLM (cost, latency, dependency)"
+    - "Embedding models may not understand your domain"
+    - "Additional infrastructure complexity"
+    - "Privacy concerns sending data to embedding API"
+
+  why_fulltext_plus_claude_is_better:
+    - "Claude already understands context and relevance"
+    - "Full-text search is fast, free, and local"
+    - "No external dependencies"
+    - "Works offline"
+    - "Claude can read 10-20 candidate memories and pick relevant ones"
+    - "More accurate than embeddings for YOUR specific context"
+
+  example: |
+    Query: "How do we handle errors?"
+
+    Embedding approach:
+    - Generate embedding for query
+    - Find similar vectors
+    - May miss "exception handling" (different words, same concept)
+
+    Claude approach:
+    - Full-text finds memories with "error", "exception", "handle", "catch"
+    - Claude reads them ALL
+    - Claude understands "exception handling" = "error handling"
+    - Claude picks the relevant ones
+
+    Claude's understanding > embedding similarity

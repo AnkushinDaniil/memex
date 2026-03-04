@@ -1,0 +1,464 @@
+# Memex Data Models & Storage Design
+# Version: 1.0.0
+
+storage:
+  database: "PostgreSQL 16 + pgvector"
+  reason: |
+    Single database for both structured data and vector embeddings.
+    pgvector provides efficient similarity search without separate vector DB.
+
+---
+# Database Schema
+
+schema:
+  extensions:
+    - pgvector
+    - pg_trgm  # For full-text search
+
+  tables:
+    users:
+      description: "User accounts"
+      columns:
+        id: { type: "UUID", primary: true, default: "gen_random_uuid()" }
+        email: { type: "VARCHAR(255)", unique: true, not_null: true }
+        name: { type: "VARCHAR(100)" }
+        password_hash: { type: "VARCHAR(255)", description: "bcrypt hash" }
+        tier: { type: "VARCHAR(20)", default: "'free'", check: "tier IN ('free', 'pro', 'team', 'enterprise')" }
+        settings: { type: "JSONB", default: "'{}'" }
+        created_at: { type: "TIMESTAMPTZ", default: "NOW()" }
+        updated_at: { type: "TIMESTAMPTZ", default: "NOW()" }
+      indexes:
+        - { columns: [email], unique: true }
+
+    api_keys:
+      description: "API keys for authentication"
+      columns:
+        id: { type: "UUID", primary: true, default: "gen_random_uuid()" }
+        user_id: { type: "UUID", references: "users(id)", on_delete: "CASCADE" }
+        key_hash: { type: "VARCHAR(255)", not_null: true, description: "bcrypt hash of key" }
+        key_prefix: { type: "VARCHAR(10)", not_null: true, description: "First 10 chars for identification" }
+        name: { type: "VARCHAR(100)" }
+        scopes: { type: "TEXT[]", default: "ARRAY['read', 'write']" }
+        last_used_at: { type: "TIMESTAMPTZ" }
+        expires_at: { type: "TIMESTAMPTZ" }
+        created_at: { type: "TIMESTAMPTZ", default: "NOW()" }
+      indexes:
+        - { columns: [user_id] }
+        - { columns: [key_prefix] }
+
+    projects:
+      description: "Projects containing memories"
+      columns:
+        id: { type: "UUID", primary: true, default: "gen_random_uuid()" }
+        user_id: { type: "UUID", references: "users(id)", on_delete: "CASCADE" }
+        name: { type: "VARCHAR(100)", not_null: true }
+        description: { type: "TEXT" }
+        settings: { type: "JSONB", default: "'{}'" }
+        memory_count: { type: "INTEGER", default: 0 }
+        storage_bytes: { type: "BIGINT", default: 0 }
+        created_at: { type: "TIMESTAMPTZ", default: "NOW()" }
+        updated_at: { type: "TIMESTAMPTZ", default: "NOW()" }
+      indexes:
+        - { columns: [user_id] }
+        - { columns: [user_id, name], unique: true }
+
+    project_members:
+      description: "Team project membership"
+      columns:
+        id: { type: "UUID", primary: true, default: "gen_random_uuid()" }
+        project_id: { type: "UUID", references: "projects(id)", on_delete: "CASCADE" }
+        user_id: { type: "UUID", references: "users(id)", on_delete: "CASCADE" }
+        role: { type: "VARCHAR(20)", default: "'member'", check: "role IN ('owner', 'member', 'viewer')" }
+        created_at: { type: "TIMESTAMPTZ", default: "NOW()" }
+      indexes:
+        - { columns: [project_id, user_id], unique: true }
+        - { columns: [user_id] }
+
+    memories:
+      description: "Core memory storage"
+      columns:
+        id: { type: "UUID", primary: true, default: "gen_random_uuid()" }
+        project_id: { type: "UUID", references: "projects(id)", on_delete: "CASCADE" }
+        content: { type: "TEXT", not_null: true }
+        content_hash: { type: "VARCHAR(64)", description: "SHA-256 for deduplication" }
+        type: { type: "VARCHAR(20)", default: "'explicit'", check: "type IN ('explicit', 'auto', 'session')" }
+        priority: { type: "VARCHAR(10)", default: "'normal'", check: "priority IN ('low', 'normal', 'high')" }
+        metadata: { type: "JSONB", default: "'{}'" }
+        tags: { type: "TEXT[]", default: "ARRAY[]::TEXT[]" }
+        version: { type: "INTEGER", default: 1 }
+        retrieval_count: { type: "INTEGER", default: 0 }
+        last_retrieved_at: { type: "TIMESTAMPTZ" }
+        decay_score: { type: "REAL", default: 1.0, check: "decay_score >= 0 AND decay_score <= 1" }
+        created_at: { type: "TIMESTAMPTZ", default: "NOW()" }
+        updated_at: { type: "TIMESTAMPTZ", default: "NOW()" }
+        deleted_at: { type: "TIMESTAMPTZ", description: "Soft delete" }
+      indexes:
+        - { columns: [project_id] }
+        - { columns: [project_id, type] }
+        - { columns: [project_id, created_at] }
+        - { columns: [content_hash] }
+        - { columns: [tags], type: "GIN" }
+        - { columns: [deleted_at], where: "deleted_at IS NULL" }
+
+    memory_versions:
+      description: "Version history for memories"
+      columns:
+        id: { type: "UUID", primary: true, default: "gen_random_uuid()" }
+        memory_id: { type: "UUID", references: "memories(id)", on_delete: "CASCADE" }
+        version: { type: "INTEGER", not_null: true }
+        content: { type: "TEXT", not_null: true }
+        metadata: { type: "JSONB" }
+        created_at: { type: "TIMESTAMPTZ", default: "NOW()" }
+      indexes:
+        - { columns: [memory_id, version], unique: true }
+
+    # NO EMBEDDINGS TABLE - Claude handles semantic understanding
+    # Full-text search via tsvector (see memories.search_vector column)
+
+    sessions:
+      description: "Active plugin sessions"
+      columns:
+        id: { type: "UUID", primary: true, default: "gen_random_uuid()" }
+        project_id: { type: "UUID", references: "projects(id)", on_delete: "CASCADE" }
+        user_id: { type: "UUID", references: "users(id)", on_delete: "CASCADE" }
+        client_info: { type: "JSONB", default: "'{}'" }
+        started_at: { type: "TIMESTAMPTZ", default: "NOW()" }
+        last_activity_at: { type: "TIMESTAMPTZ", default: "NOW()" }
+        ended_at: { type: "TIMESTAMPTZ" }
+      indexes:
+        - { columns: [project_id] }
+        - { columns: [user_id] }
+        - { columns: [ended_at], where: "ended_at IS NULL" }
+
+    audit_logs:
+      description: "Audit trail for all operations"
+      columns:
+        id: { type: "UUID", primary: true, default: "gen_random_uuid()" }
+        project_id: { type: "UUID", references: "projects(id)", on_delete: "CASCADE" }
+        user_id: { type: "UUID", references: "users(id)", on_delete: "SET NULL" }
+        session_id: { type: "UUID", references: "sessions(id)", on_delete: "SET NULL" }
+        action: { type: "VARCHAR(20)", not_null: true, check: "action IN ('create', 'read', 'update', 'delete', 'search', 'context')" }
+        resource_type: { type: "VARCHAR(20)", not_null: true }
+        resource_id: { type: "UUID" }
+        metadata: { type: "JSONB", default: "'{}'" }
+        ip_address: { type: "INET" }
+        user_agent: { type: "TEXT" }
+        created_at: { type: "TIMESTAMPTZ", default: "NOW()" }
+      indexes:
+        - { columns: [project_id, created_at] }
+        - { columns: [user_id, created_at] }
+        - { columns: [action] }
+      partitioning:
+        type: "RANGE"
+        column: "created_at"
+        interval: "1 month"
+
+---
+# SQL Migrations
+
+migrations:
+  001_initial:
+    up: |
+      -- Enable extensions
+      CREATE EXTENSION IF NOT EXISTS "pgvector";
+      CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+
+      -- Users table
+      CREATE TABLE users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email VARCHAR(255) UNIQUE NOT NULL,
+        name VARCHAR(100),
+        password_hash VARCHAR(255),
+        tier VARCHAR(20) DEFAULT 'free' CHECK (tier IN ('free', 'pro', 'team', 'enterprise')),
+        settings JSONB DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      -- API Keys table
+      CREATE TABLE api_keys (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        key_hash VARCHAR(255) NOT NULL,
+        key_prefix VARCHAR(10) NOT NULL,
+        name VARCHAR(100),
+        scopes TEXT[] DEFAULT ARRAY['read', 'write'],
+        last_used_at TIMESTAMPTZ,
+        expires_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX idx_api_keys_user_id ON api_keys(user_id);
+      CREATE INDEX idx_api_keys_prefix ON api_keys(key_prefix);
+
+      -- Projects table
+      CREATE TABLE projects (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(100) NOT NULL,
+        description TEXT,
+        settings JSONB DEFAULT '{}',
+        memory_count INTEGER DEFAULT 0,
+        storage_bytes BIGINT DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(user_id, name)
+      );
+      CREATE INDEX idx_projects_user_id ON projects(user_id);
+
+      -- Project Members table
+      CREATE TABLE project_members (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        role VARCHAR(20) DEFAULT 'member' CHECK (role IN ('owner', 'member', 'viewer')),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(project_id, user_id)
+      );
+      CREATE INDEX idx_project_members_user_id ON project_members(user_id);
+
+      -- Memories table
+      CREATE TABLE memories (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+        content TEXT NOT NULL,
+        content_hash VARCHAR(64),
+        type VARCHAR(20) DEFAULT 'explicit' CHECK (type IN ('explicit', 'auto', 'session')),
+        priority VARCHAR(10) DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high')),
+        metadata JSONB DEFAULT '{}',
+        tags TEXT[] DEFAULT ARRAY[]::TEXT[],
+        version INTEGER DEFAULT 1,
+        retrieval_count INTEGER DEFAULT 0,
+        last_retrieved_at TIMESTAMPTZ,
+        decay_score REAL DEFAULT 1.0 CHECK (decay_score >= 0 AND decay_score <= 1),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ
+      );
+      CREATE INDEX idx_memories_project_id ON memories(project_id);
+      CREATE INDEX idx_memories_project_type ON memories(project_id, type);
+      CREATE INDEX idx_memories_project_created ON memories(project_id, created_at);
+      CREATE INDEX idx_memories_content_hash ON memories(content_hash);
+      CREATE INDEX idx_memories_tags ON memories USING GIN(tags);
+      CREATE INDEX idx_memories_not_deleted ON memories(deleted_at) WHERE deleted_at IS NULL;
+
+      -- Memory Versions table
+      CREATE TABLE memory_versions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        memory_id UUID REFERENCES memories(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        metadata JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(memory_id, version)
+      );
+
+      -- Embeddings table
+      CREATE TABLE embeddings (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        memory_id UUID REFERENCES memories(id) ON DELETE CASCADE UNIQUE,
+        embedding VECTOR(1536) NOT NULL,
+        model VARCHAR(50) DEFAULT 'text-embedding-3-small',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX idx_embeddings_memory_id ON embeddings(memory_id);
+
+      -- Sessions table
+      CREATE TABLE sessions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        client_info JSONB DEFAULT '{}',
+        started_at TIMESTAMPTZ DEFAULT NOW(),
+        last_activity_at TIMESTAMPTZ DEFAULT NOW(),
+        ended_at TIMESTAMPTZ
+      );
+      CREATE INDEX idx_sessions_project_id ON sessions(project_id);
+      CREATE INDEX idx_sessions_active ON sessions(ended_at) WHERE ended_at IS NULL;
+
+      -- Audit Logs table (partitioned)
+      CREATE TABLE audit_logs (
+        id UUID DEFAULT gen_random_uuid(),
+        project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+        user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
+        action VARCHAR(20) NOT NULL CHECK (action IN ('create', 'read', 'update', 'delete', 'search', 'context')),
+        resource_type VARCHAR(20) NOT NULL,
+        resource_id UUID,
+        metadata JSONB DEFAULT '{}',
+        ip_address INET,
+        user_agent TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        PRIMARY KEY (id, created_at)
+      ) PARTITION BY RANGE (created_at);
+
+      -- Create initial partition
+      CREATE TABLE audit_logs_2026_03 PARTITION OF audit_logs
+        FOR VALUES FROM ('2026-03-01') TO ('2026-04-01');
+
+    down: |
+      DROP TABLE IF EXISTS audit_logs CASCADE;
+      DROP TABLE IF EXISTS sessions CASCADE;
+      DROP TABLE IF EXISTS embeddings CASCADE;
+      DROP TABLE IF EXISTS memory_versions CASCADE;
+      DROP TABLE IF EXISTS memories CASCADE;
+      DROP TABLE IF EXISTS project_members CASCADE;
+      DROP TABLE IF EXISTS projects CASCADE;
+      DROP TABLE IF EXISTS api_keys CASCADE;
+      DROP TABLE IF EXISTS users CASCADE;
+
+  002_vector_index:
+    up: |
+      -- Create IVFFlat index for vector similarity search
+      -- Requires data to exist, so run after initial data load
+      CREATE INDEX idx_embeddings_vector ON embeddings
+        USING ivfflat (embedding vector_cosine_ops)
+        WITH (lists = 100);
+
+    down: |
+      DROP INDEX IF EXISTS idx_embeddings_vector;
+
+  003_full_text_search:
+    up: |
+      -- Add full-text search column and index
+      ALTER TABLE memories ADD COLUMN content_tsv TSVECTOR
+        GENERATED ALWAYS AS (to_tsvector('english', content)) STORED;
+
+      CREATE INDEX idx_memories_fts ON memories USING GIN(content_tsv);
+
+    down: |
+      DROP INDEX IF EXISTS idx_memories_fts;
+      ALTER TABLE memories DROP COLUMN IF EXISTS content_tsv;
+
+---
+# Go Structs (sqlc generated)
+
+go_models: |
+  // Memory represents a stored memory
+  type Memory struct {
+      ID              uuid.UUID       `json:"id"`
+      ProjectID       uuid.UUID       `json:"project_id"`
+      Content         string          `json:"content"`
+      ContentHash     sql.NullString  `json:"-"`
+      Type            string          `json:"type"`
+      Priority        string          `json:"priority"`
+      Metadata        json.RawMessage `json:"metadata"`
+      Tags            []string        `json:"tags"`
+      Version         int32           `json:"version"`
+      RetrievalCount  int32           `json:"retrieval_count"`
+      LastRetrievedAt sql.NullTime    `json:"last_retrieved_at"`
+      DecayScore      float32         `json:"decay_score"`
+      CreatedAt       time.Time       `json:"created_at"`
+      UpdatedAt       time.Time       `json:"updated_at"`
+      DeletedAt       sql.NullTime    `json:"-"`
+  }
+
+  // Project represents a project containing memories
+  type Project struct {
+      ID           uuid.UUID       `json:"id"`
+      UserID       uuid.UUID       `json:"user_id"`
+      Name         string          `json:"name"`
+      Description  sql.NullString  `json:"description"`
+      Settings     json.RawMessage `json:"settings"`
+      MemoryCount  int32           `json:"memory_count"`
+      StorageBytes int64           `json:"storage_bytes"`
+      CreatedAt    time.Time       `json:"created_at"`
+      UpdatedAt    time.Time       `json:"updated_at"`
+  }
+
+  // SearchResult represents a memory search result with score
+  type SearchResult struct {
+      Memory Memory  `json:"memory"`
+      Score  float32 `json:"score"`
+  }
+
+  // Embedding represents a vector embedding for a memory
+  type Embedding struct {
+      ID        uuid.UUID `json:"id"`
+      MemoryID  uuid.UUID `json:"memory_id"`
+      Embedding []float32 `json:"-"` // pgvector
+      Model     string    `json:"model"`
+      CreatedAt time.Time `json:"created_at"`
+  }
+
+---
+# Key Queries
+
+queries:
+  semantic_search: |
+    -- Find memories similar to a query embedding
+    SELECT
+      m.id,
+      m.content,
+      m.type,
+      m.priority,
+      m.metadata,
+      m.tags,
+      m.created_at,
+      1 - (e.embedding <=> $1::vector) AS score
+    FROM memories m
+    JOIN embeddings e ON e.memory_id = m.id
+    WHERE m.project_id = $2
+      AND m.deleted_at IS NULL
+      AND 1 - (e.embedding <=> $1::vector) >= $3  -- threshold
+    ORDER BY e.embedding <=> $1::vector
+    LIMIT $4;
+
+  hybrid_search: |
+    -- Combined semantic + full-text search
+    WITH semantic AS (
+      SELECT
+        m.id,
+        1 - (e.embedding <=> $1::vector) AS semantic_score
+      FROM memories m
+      JOIN embeddings e ON e.memory_id = m.id
+      WHERE m.project_id = $2 AND m.deleted_at IS NULL
+    ),
+    fulltext AS (
+      SELECT
+        m.id,
+        ts_rank(m.content_tsv, plainto_tsquery('english', $3)) AS text_score
+      FROM memories m
+      WHERE m.project_id = $2
+        AND m.deleted_at IS NULL
+        AND m.content_tsv @@ plainto_tsquery('english', $3)
+    )
+    SELECT
+      m.*,
+      COALESCE(s.semantic_score, 0) * $4 +
+      COALESCE(f.text_score, 0) * $5 AS combined_score
+    FROM memories m
+    LEFT JOIN semantic s ON s.id = m.id
+    LEFT JOIN fulltext f ON f.id = m.id
+    WHERE m.project_id = $2
+      AND m.deleted_at IS NULL
+      AND (s.semantic_score IS NOT NULL OR f.text_score IS NOT NULL)
+    ORDER BY combined_score DESC
+    LIMIT $6;
+
+  decay_memories: |
+    -- Apply decay to memories based on age and usage
+    UPDATE memories
+    SET decay_score = GREATEST(0.1,
+      decay_score * EXP(-0.01 * EXTRACT(EPOCH FROM (NOW() - COALESCE(last_retrieved_at, created_at))) / 86400)
+    )
+    WHERE project_id = $1
+      AND deleted_at IS NULL;
+
+  context_retrieval: |
+    -- Get relevant memories for context injection with decay weighting
+    SELECT
+      m.id,
+      m.content,
+      m.type,
+      m.priority,
+      LENGTH(m.content) AS content_length,
+      (1 - (e.embedding <=> $1::vector)) *
+      m.decay_score *
+      CASE m.priority WHEN 'high' THEN 1.5 WHEN 'normal' THEN 1.0 ELSE 0.7 END
+      AS weighted_score
+    FROM memories m
+    JOIN embeddings e ON e.memory_id = m.id
+    WHERE m.project_id = $2
+      AND m.deleted_at IS NULL
+      AND 1 - (e.embedding <=> $1::vector) >= 0.5
+    ORDER BY weighted_score DESC;

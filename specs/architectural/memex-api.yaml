@@ -1,0 +1,485 @@
+# Memex API Specification
+# Version: 1.0.0
+# OpenAPI-style specification for the Go backend
+
+api:
+  version: "v1"
+  base_url: "https://api.memex.dev/v1"
+  content_type: "application/json"
+
+---
+# Authentication
+
+authentication:
+  method: "Bearer Token"
+  header: "Authorization: Bearer <token>"
+  token_types:
+    api_key:
+      description: "Long-lived API key for server-to-server"
+      format: "mx_live_xxxxxxxxxxxxxxxxxxxx"
+      usage: "Plugin configuration, CI/CD"
+    jwt:
+      description: "Short-lived token for sessions"
+      expiry: "1 hour"
+      refresh: "7 days"
+      usage: "Active plugin sessions"
+
+---
+# Endpoints
+
+endpoints:
+  # Health & Status
+  health:
+    path: "/health"
+    method: "GET"
+    auth: false
+    description: "Health check endpoint"
+    response:
+      status: "ok"
+      version: "1.0.0"
+      timestamp: "2026-03-04T12:00:00Z"
+
+  # Projects
+  projects:
+    list:
+      path: "/projects"
+      method: "GET"
+      auth: true
+      description: "List all projects for authenticated user"
+      query_params:
+        limit: { type: integer, default: 20, max: 100 }
+        offset: { type: integer, default: 0 }
+      response:
+        projects: [Project]
+        total: integer
+        has_more: boolean
+
+    create:
+      path: "/projects"
+      method: "POST"
+      auth: true
+      description: "Create a new project"
+      body:
+        name: { type: string, required: true, max: 100 }
+        description: { type: string, max: 500 }
+        settings: { type: ProjectSettings }
+      response:
+        project: Project
+
+    get:
+      path: "/projects/{project_id}"
+      method: "GET"
+      auth: true
+      description: "Get project details"
+      response:
+        project: Project
+
+    update:
+      path: "/projects/{project_id}"
+      method: "PATCH"
+      auth: true
+      description: "Update project settings"
+      body:
+        name: { type: string, max: 100 }
+        description: { type: string, max: 500 }
+        settings: { type: ProjectSettings }
+      response:
+        project: Project
+
+    delete:
+      path: "/projects/{project_id}"
+      method: "DELETE"
+      auth: true
+      description: "Delete project and all memories"
+      response:
+        deleted: boolean
+
+  # Memories
+  memories:
+    list:
+      path: "/projects/{project_id}/memories"
+      method: "GET"
+      auth: true
+      description: "List memories in a project"
+      query_params:
+        limit: { type: integer, default: 50, max: 200 }
+        offset: { type: integer, default: 0 }
+        type: { type: string, enum: [explicit, auto, session] }
+        since: { type: datetime }
+        until: { type: datetime }
+      response:
+        memories: [Memory]
+        total: integer
+        has_more: boolean
+
+    create:
+      path: "/projects/{project_id}/memories"
+      method: "POST"
+      auth: true
+      description: "Create a new memory"
+      body:
+        content: { type: string, required: true, max: 10000 }
+        type: { type: string, enum: [explicit, auto, session], default: explicit }
+        metadata: { type: object }
+        tags: { type: array, items: string }
+        priority: { type: string, enum: [low, normal, high], default: normal }
+      response:
+        memory: Memory
+
+    get:
+      path: "/projects/{project_id}/memories/{memory_id}"
+      method: "GET"
+      auth: true
+      description: "Get a specific memory"
+      response:
+        memory: Memory
+
+    update:
+      path: "/projects/{project_id}/memories/{memory_id}"
+      method: "PATCH"
+      auth: true
+      description: "Update a memory"
+      body:
+        content: { type: string, max: 10000 }
+        metadata: { type: object }
+        tags: { type: array, items: string }
+        priority: { type: string, enum: [low, normal, high] }
+      response:
+        memory: Memory
+
+    delete:
+      path: "/projects/{project_id}/memories/{memory_id}"
+      method: "DELETE"
+      auth: true
+      description: "Delete a memory"
+      response:
+        deleted: boolean
+
+    bulk_create:
+      path: "/projects/{project_id}/memories/bulk"
+      method: "POST"
+      auth: true
+      description: "Create multiple memories (max 100)"
+      body:
+        memories: [MemoryInput]
+      response:
+        created: integer
+        memories: [Memory]
+
+  # Search
+  search:
+    semantic:
+      path: "/projects/{project_id}/search"
+      method: "POST"
+      auth: true
+      description: "Semantic search across memories"
+      body:
+        query: { type: string, required: true, max: 1000 }
+        limit: { type: integer, default: 10, max: 50 }
+        threshold: { type: number, default: 0.7, min: 0, max: 1 }
+        filters:
+          type: { type: array, items: string }
+          tags: { type: array, items: string }
+          since: { type: datetime }
+          until: { type: datetime }
+      response:
+        results: [SearchResult]
+        query_embedding_id: string
+
+    hybrid:
+      path: "/projects/{project_id}/search/hybrid"
+      method: "POST"
+      auth: true
+      description: "Combined semantic + keyword search"
+      body:
+        query: { type: string, required: true, max: 1000 }
+        limit: { type: integer, default: 10, max: 50 }
+        semantic_weight: { type: number, default: 0.7, min: 0, max: 1 }
+        keyword_weight: { type: number, default: 0.3, min: 0, max: 1 }
+        filters:
+          type: { type: array, items: string }
+          tags: { type: array, items: string }
+      response:
+        results: [SearchResult]
+
+  # Context (for AI injection)
+  context:
+    get:
+      path: "/projects/{project_id}/context"
+      method: "POST"
+      auth: true
+      description: "Get relevant context for AI injection"
+      body:
+        prompt: { type: string, required: true, max: 5000 }
+        max_tokens: { type: integer, default: 2000, max: 4000 }
+        include_metadata: { type: boolean, default: false }
+      response:
+        context: string
+        memories_used: [MemoryReference]
+        total_tokens: integer
+        retrieval_id: string
+
+  # Sessions
+  sessions:
+    start:
+      path: "/projects/{project_id}/sessions"
+      method: "POST"
+      auth: true
+      description: "Start a new session"
+      body:
+        client_info: { type: object }
+      response:
+        session: Session
+
+    end:
+      path: "/projects/{project_id}/sessions/{session_id}"
+      method: "DELETE"
+      auth: true
+      description: "End a session and optionally save summary"
+      body:
+        summary: { type: string, max: 5000 }
+        save_as_memory: { type: boolean, default: true }
+      response:
+        ended: boolean
+        memory_id: string
+
+    heartbeat:
+      path: "/projects/{project_id}/sessions/{session_id}/heartbeat"
+      method: "POST"
+      auth: true
+      description: "Keep session alive"
+      response:
+        alive: boolean
+
+  # Audit
+  audit:
+    list:
+      path: "/projects/{project_id}/audit"
+      method: "GET"
+      auth: true
+      description: "List audit log entries"
+      query_params:
+        limit: { type: integer, default: 100, max: 500 }
+        offset: { type: integer, default: 0 }
+        action: { type: string, enum: [create, read, update, delete, search] }
+        since: { type: datetime }
+        until: { type: datetime }
+      response:
+        entries: [AuditEntry]
+        total: integer
+
+    export:
+      path: "/projects/{project_id}/audit/export"
+      method: "GET"
+      auth: true
+      description: "Export audit log as CSV/JSON"
+      query_params:
+        format: { type: string, enum: [json, csv], default: json }
+        since: { type: datetime }
+        until: { type: datetime }
+      response:
+        download_url: string
+        expires_at: datetime
+
+  # Import/Export
+  data:
+    export:
+      path: "/projects/{project_id}/export"
+      method: "POST"
+      auth: true
+      description: "Export all project data"
+      body:
+        format: { type: string, enum: [json, yaml], default: json }
+        include_embeddings: { type: boolean, default: false }
+      response:
+        download_url: string
+        expires_at: datetime
+
+    import:
+      path: "/projects/{project_id}/import"
+      method: "POST"
+      auth: true
+      description: "Import memories from export file"
+      body:
+        file_url: { type: string }
+        mode: { type: string, enum: [merge, replace], default: merge }
+      response:
+        imported: integer
+        skipped: integer
+        errors: [ImportError]
+
+---
+# Data Types
+
+types:
+  Project:
+    id: { type: string, format: uuid }
+    name: { type: string }
+    description: { type: string }
+    settings: { type: ProjectSettings }
+    memory_count: { type: integer }
+    storage_bytes: { type: integer }
+    created_at: { type: datetime }
+    updated_at: { type: datetime }
+
+  ProjectSettings:
+    auto_capture: { type: boolean, default: true }
+    retention_days: { type: integer, default: null, description: "null = unlimited" }
+    max_context_tokens: { type: integer, default: 2000 }
+    decay_enabled: { type: boolean, default: true }
+    decay_half_life_days: { type: integer, default: 30 }
+
+  Memory:
+    id: { type: string, format: uuid }
+    project_id: { type: string, format: uuid }
+    content: { type: string }
+    type: { type: string, enum: [explicit, auto, session] }
+    priority: { type: string, enum: [low, normal, high] }
+    metadata: { type: object }
+    tags: { type: array, items: string }
+    version: { type: integer }
+    retrieval_count: { type: integer }
+    last_retrieved_at: { type: datetime }
+    decay_score: { type: number, min: 0, max: 1 }
+    created_at: { type: datetime }
+    updated_at: { type: datetime }
+
+  MemoryInput:
+    content: { type: string, required: true }
+    type: { type: string, enum: [explicit, auto, session] }
+    priority: { type: string, enum: [low, normal, high] }
+    metadata: { type: object }
+    tags: { type: array, items: string }
+
+  SearchResult:
+    memory: { type: Memory }
+    score: { type: number, description: "Similarity score 0-1" }
+    highlights: { type: array, items: string }
+
+  MemoryReference:
+    id: { type: string, format: uuid }
+    content_preview: { type: string, max: 200 }
+    score: { type: number }
+    tokens: { type: integer }
+
+  Session:
+    id: { type: string, format: uuid }
+    project_id: { type: string, format: uuid }
+    started_at: { type: datetime }
+    last_activity_at: { type: datetime }
+    client_info: { type: object }
+
+  AuditEntry:
+    id: { type: string, format: uuid }
+    project_id: { type: string, format: uuid }
+    user_id: { type: string, format: uuid }
+    action: { type: string, enum: [create, read, update, delete, search] }
+    resource_type: { type: string, enum: [memory, project, session] }
+    resource_id: { type: string }
+    metadata: { type: object }
+    created_at: { type: datetime }
+
+  ImportError:
+    index: { type: integer }
+    error: { type: string }
+
+---
+# Error Responses
+
+errors:
+  format:
+    error:
+      code: { type: string }
+      message: { type: string }
+      details: { type: object }
+
+  codes:
+    bad_request:
+      status: 400
+      code: "BAD_REQUEST"
+      message: "Invalid request parameters"
+
+    unauthorized:
+      status: 401
+      code: "UNAUTHORIZED"
+      message: "Invalid or missing authentication"
+
+    forbidden:
+      status: 403
+      code: "FORBIDDEN"
+      message: "Insufficient permissions"
+
+    not_found:
+      status: 404
+      code: "NOT_FOUND"
+      message: "Resource not found"
+
+    conflict:
+      status: 409
+      code: "CONFLICT"
+      message: "Resource already exists"
+
+    rate_limited:
+      status: 429
+      code: "RATE_LIMITED"
+      message: "Too many requests"
+      headers:
+        Retry-After: "seconds until retry allowed"
+        X-RateLimit-Limit: "requests per window"
+        X-RateLimit-Remaining: "requests remaining"
+        X-RateLimit-Reset: "window reset timestamp"
+
+    internal_error:
+      status: 500
+      code: "INTERNAL_ERROR"
+      message: "Internal server error"
+
+---
+# Rate Limits
+
+rate_limits:
+  tiers:
+    free:
+      requests_per_minute: 60
+      requests_per_day: 1000
+      memories_per_day: 100
+      search_per_minute: 20
+
+    pro:
+      requests_per_minute: 300
+      requests_per_day: 10000
+      memories_per_day: 1000
+      search_per_minute: 100
+
+    team:
+      requests_per_minute: 1000
+      requests_per_day: 100000
+      memories_per_day: 10000
+      search_per_minute: 500
+
+    enterprise:
+      custom: true
+
+  headers:
+    X-RateLimit-Limit: "Limit for current window"
+    X-RateLimit-Remaining: "Remaining requests"
+    X-RateLimit-Reset: "Unix timestamp of reset"
+
+---
+# Webhooks (Future)
+
+webhooks:
+  events:
+    - memory.created
+    - memory.updated
+    - memory.deleted
+    - project.storage_warning
+    - session.started
+    - session.ended
+
+  payload:
+    event: { type: string }
+    timestamp: { type: datetime }
+    project_id: { type: string }
+    data: { type: object }
+    signature: { type: string, description: "HMAC-SHA256 signature" }

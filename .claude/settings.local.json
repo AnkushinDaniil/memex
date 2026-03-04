@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(git init:*)",
+      "Bash(git branch:*)",
+      "Bash(mkdir:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(go build:*)",
+      "Bash(go get:*)",
+      "Bash(go test:*)",
+      "Bash(make:*)",
+      "Bash(go install:*)",
+      "Bash(cat:*)",
+      "Bash(golangci-lint:*)",
+      "Bash(curl:*)",
+      "Bash(git checkout:*)",
+      "Bash(tee:*)",
+      "Bash(ls:*)",
+      "Bash(govulncheck:*)",
+      "Bash(fieldalignment -fix:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

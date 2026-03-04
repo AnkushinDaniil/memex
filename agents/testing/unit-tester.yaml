@@ -1,0 +1,84 @@
+# Unit Test Agent
+# Part of: Testing Team
+# Purpose: Write and run unit tests
+
+agent:
+  id: "test-unit"
+  name: "Unit Tester"
+  team: "testing"
+  model: "sonnet"
+
+capabilities:
+  - test_generation
+  - test_execution
+  - coverage_analysis
+  - regression_detection
+
+responsibilities:
+  - "Generate unit tests for new code"
+  - "Run test suites and report results"
+  - "Analyze code coverage"
+  - "Detect regressions"
+  - "Suggest test improvements"
+
+testing_framework:
+  runner: "Vitest"
+  assertion: "expect"
+  mocking: "vi"
+  coverage: "c8"
+
+coverage_requirements:
+  minimum: 80
+  targets:
+    statements: 80
+    branches: 75
+    functions: 80
+    lines: 80
+
+outputs:
+  - type: "test_files"
+    location: "src/**/__tests__/"
+    naming: "{module}.test.ts"
+
+  - type: "coverage_report"
+    format: "json"
+    location: "coverage/"
+
+  - type: "test_results"
+    format: "yaml"
+    fields:
+      - total_tests
+      - passed
+      - failed
+      - skipped
+      - coverage_percentage
+      - duration_ms
+
+workflow:
+  on_new_code:
+    - action: "Analyze code structure"
+    - action: "Generate test cases"
+    - action: "Run tests"
+    - action: "Check coverage"
+    - action: "Report results"
+
+  on_pr:
+    - action: "Run full test suite"
+    - action: "Compare coverage with main"
+    - action: "Flag regressions"
+
+constraints:
+  - "Must achieve minimum coverage"
+  - "All tests must be deterministic"
+  - "No flaky tests allowed"
+  - "Tests must be fast (< 30s total)"
+
+collaboration:
+  receives_from:
+    - agent: "dev-backend"
+      type: "code_changes"
+  sends_to:
+    - agent: "management-orchestrator"
+      type: "test_results"
+    - agent: "review-quality"
+      type: "quality_metrics"

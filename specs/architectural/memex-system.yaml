@@ -1,0 +1,389 @@
+# Memex System Architecture
+# Version: 1.0.0
+# Status: Draft
+
+system:
+  name: "Memex"
+  description: "Agent Memory Infrastructure"
+
+---
+# High-Level Architecture
+
+architecture:
+  overview: |
+    Three-tier architecture with clear separation:
+    1. Client Layer: Claude Code plugin, MCP server, REST API
+    2. Service Layer: Go backend handling all business logic
+    3. Storage Layer: PostgreSQL + pgvector for hybrid storage
+
+  diagram: |
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │                        CLIENT LAYER                                  │
+    ├─────────────────┬─────────────────┬─────────────────────────────────┤
+    │  Claude Code    │   MCP Server    │         REST API                │
+    │  Plugin (TS)    │   (Go)          │         (Go)                    │
+    │                 │                 │                                 │
+    │  - Commands     │  - Tools        │  - /memories                    │
+    │  - UI/UX        │  - Resources    │  - /projects                    │
+    │  - Local cache  │  - Prompts      │  - /search                      │
+    └────────┬────────┴────────┬────────┴────────────────┬────────────────┘
+             │                 │                         │
+             └─────────────────┴─────────────────────────┘
+                               │
+                               ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │                       SERVICE LAYER (Go)                            │
+    ├─────────────────────────────────────────────────────────────────────┤
+    │                                                                     │
+    │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
+    │  │   Memory    │  │   Search    │  │   Context   │  │   Audit    │ │
+    │  │   Service   │  │   Service   │  │   Service   │  │   Service  │ │
+    │  │             │  │             │  │             │  │            │ │
+    │  │ - CRUD      │  │ - Semantic  │  │ - Injection │  │ - Logging  │ │
+    │  │ - Versioning│  │ - Hybrid    │  │ - Ranking   │  │ - Export   │ │
+    │  │ - Decay     │  │ - Filters   │  │ - Limits    │  │ - Compliance│ │
+    │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └─────┬──────┘ │
+    │         │                │                │                │        │
+    │         └────────────────┴────────────────┴────────────────┘        │
+    │                                   │                                 │
+    │                          ┌────────▼────────┐                        │
+    │                          │  Embedding      │                        │
+    │                          │  Service        │                        │
+    │                          │  (OpenAI/Local) │                        │
+    │                          └────────┬────────┘                        │
+    └──────────────────────────────────┬──────────────────────────────────┘
+                                       │
+                                       ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │                       STORAGE LAYER                                 │
+    ├─────────────────────────────────────────────────────────────────────┤
+    │                                                                     │
+    │  ┌─────────────────────────┐  ┌─────────────────────────────────┐  │
+    │  │   PostgreSQL + pgvector │  │   Redis (optional)              │  │
+    │  │                         │  │                                 │  │
+    │  │   - memories            │  │   - Session cache               │  │
+    │  │   - projects            │  │   - Hot memories                │  │
+    │  │   - users               │  │   - Rate limiting               │  │
+    │  │   - audit_logs          │  │                                 │  │
+    │  │   - embeddings (vector) │  │                                 │  │
+    │  └─────────────────────────┘  └─────────────────────────────────┘  │
+    │                                                                     │
+    └─────────────────────────────────────────────────────────────────────┘
+
+---
+# Component Details
+
+components:
+  claude_code_plugin:
+    language: "TypeScript"
+    type: "Claude Code Plugin"
+    responsibilities:
+      - User command handling (/memex remember, recall, etc.)
+      - UI rendering (memory indicators, dashboard)
+      - Local caching for offline/fast access
+      - Session lifecycle hooks
+      - Context injection into prompts
+    dependencies:
+      - Claude Code Plugin SDK
+      - Memex Go Backend API
+    configuration:
+      - API endpoint (cloud or self-hosted)
+      - API key
+      - Local cache settings
+      - UI preferences
+
+  mcp_server:
+    language: "Go"
+    type: "MCP Server (stdio)"
+    responsibilities:
+      - Expose memory as MCP tools
+      - Expose memory as MCP resources
+      - Handle MCP protocol communication
+    tools:
+      - memex_remember: Store a memory
+      - memex_recall: Search memories
+      - memex_forget: Delete memories
+      - memex_list: List recent memories
+    resources:
+      - memex://project/{id}/memories
+      - memex://project/{id}/context
+    prompts:
+      - project_context: Inject relevant project memory
+
+  go_backend:
+    language: "Go 1.26"
+    framework: "Chi router"
+    responsibilities:
+      - All business logic
+      - Authentication/authorization
+      - Rate limiting
+      - Storage management
+      - Full-text search (NO external LLM)
+    services:
+      memory_service:
+        - Create, read, update, delete memories
+        - Version management
+        - Decay/pruning logic
+        - Import/export
+      search_service:
+        - Full-text search (PostgreSQL tsvector / SQLite FTS5)
+        - Tag-based filtering
+        - Recency weighting
+        - NO embeddings - Claude does semantic understanding
+      context_service:
+        - Return candidate memories to Claude
+        - Claude picks relevant ones (native capability)
+        - Enforce token limits
+        - Track retrievals for audit
+      audit_service:
+        - Log all memory operations
+        - Generate audit reports
+        - Compliance exports
+
+    # NO EMBEDDING SERVICE - Claude handles semantic understanding natively
+
+  storage:
+    primary:
+      type: "PostgreSQL 16 + pgvector"
+      reason: "Single database for structured data + vectors"
+      tables:
+        - users
+        - projects
+        - memories
+        - memory_versions
+        - embeddings
+        - audit_logs
+        - api_keys
+    cache:
+      type: "Redis (optional)"
+      reason: "Performance optimization, not required"
+      usage:
+        - Session state
+        - Hot memory cache
+        - Rate limiting counters
+
+---
+# Data Flow
+
+data_flows:
+  store_memory:
+    trigger: "User runs /memex remember or auto-capture"
+    steps:
+      1: "Plugin sends memory content to backend"
+      2: "Backend validates and sanitizes"
+      3: "Embedding service generates vector"
+      4: "Memory + embedding stored in PostgreSQL"
+      5: "Audit log entry created"
+      6: "Confirmation returned to plugin"
+    latency_target: "<500ms"
+
+  retrieve_context:
+    trigger: "New AI interaction begins"
+    steps:
+      1: "Plugin sends current prompt/task description"
+      2: "Backend generates embedding for query"
+      3: "Vector similarity search in pgvector"
+      4: "Results ranked by relevance + recency"
+      5: "Top N memories returned (within token limit)"
+      6: "Plugin injects into AI context"
+      7: "Retrieval logged for audit"
+    latency_target: "<200ms"
+
+  explicit_recall:
+    trigger: "User runs /memex recall <query>"
+    steps:
+      1: "Plugin sends search query"
+      2: "Backend performs hybrid search"
+      3: "Results formatted for display"
+      4: "Returned to plugin for rendering"
+    latency_target: "<300ms"
+
+---
+# Security Architecture
+
+security:
+  authentication:
+    method: "API Key + JWT"
+    flow:
+      - Plugin stores API key securely
+      - API key exchanged for short-lived JWT
+      - JWT used for all API calls
+      - Refresh tokens for long sessions
+
+  authorization:
+    model: "Project-based RBAC"
+    roles:
+      - owner: Full access to project
+      - member: Read/write memories
+      - viewer: Read-only access
+    enforcement: "Middleware on all endpoints"
+
+  data_protection:
+    at_rest:
+      - PostgreSQL encryption (AES-256)
+      - Encrypted backups
+    in_transit:
+      - TLS 1.3 required
+      - Certificate pinning (optional)
+    secrets:
+      - API keys hashed (bcrypt)
+      - Encryption keys in Vault/KMS
+
+  privacy:
+    data_isolation: "Strict tenant isolation via project_id"
+    data_deletion: "Hard delete with audit trail"
+    data_export: "GDPR-compliant export"
+    retention: "Configurable per tier"
+
+---
+# Deployment Architecture
+
+deployment:
+  local_mode:
+    description: "Fully local, free forever, zero cloud dependency"
+    components:
+      - SQLite with sqlite-vec extension (embedded in plugin)
+      - No external services required
+    features:
+      - Works offline
+      - Zero configuration
+      - All features available
+      - Data never leaves machine
+    storage:
+      location: "~/.memex/local.db or .memex/local.db"
+      embeddings: "sqlite-vec for vector search"
+      size: "Typically 10-100MB per project"
+    limitations:
+      - Single device
+      - No sync
+      - No team sharing
+
+  cloud_hosted:
+    description: "Pro/Team tiers - managed cloud service"
+    provider: "Fly.io / Railway"
+    components:
+      - Go backend (2+ instances)
+      - PostgreSQL + pgvector (managed)
+      - Redis (Upstash, optional)
+    scaling:
+      - Horizontal scaling of Go backend
+      - Read replicas for PostgreSQL
+      - Geographic distribution (future)
+    data_isolation:
+      pro: "Per-user isolation"
+      team: "Per-project shared database"
+      enterprise: "Per-company shared database"
+
+  enterprise_self_hosted:
+    description: "On-premise for enterprises"
+    packaging: "Docker Compose / Helm"
+    requirements:
+      - Docker or Kubernetes
+      - PostgreSQL 16+ with pgvector
+      - Redis (optional)
+    features:
+      - Company-wide shared memory
+      - SSO integration
+      - Audit compliance
+      - Data residency control
+    configuration:
+      - Environment variables
+      - Config file (YAML)
+      - SSO provider config
+
+---
+# Performance Requirements
+
+performance:
+  latency:
+    p50: "<100ms"
+    p95: "<300ms"
+    p99: "<500ms"
+
+  throughput:
+    target: "1000 requests/second per instance"
+
+  storage:
+    memory_size: "~2KB average per memory"
+    embedding_size: "~6KB per embedding (1536 dims)"
+    growth_rate: "~100 memories/project/month typical"
+
+  caching:
+    strategy: "LRU with TTL"
+    hot_memories: "Last 100 per project in Redis"
+    embedding_cache: "Recent queries cached"
+
+---
+# Observability
+
+observability:
+  logging:
+    format: "Structured JSON"
+    levels: "debug, info, warn, error"
+    sensitive_data: "Never logged"
+
+  metrics:
+    provider: "OpenTelemetry → Prometheus"
+    key_metrics:
+      - request_duration_seconds
+      - memories_stored_total
+      - memories_retrieved_total
+      - search_latency_seconds
+      - embedding_generation_seconds
+      - active_projects_gauge
+      - storage_bytes_gauge
+
+  tracing:
+    provider: "OpenTelemetry → Jaeger"
+    spans:
+      - HTTP request
+      - Database query
+      - Embedding generation
+      - Vector search
+
+  alerting:
+    critical:
+      - Error rate > 1%
+      - P99 latency > 1s
+      - Database connection failures
+    warning:
+      - P95 latency > 500ms
+      - Storage > 80% capacity
+      - Embedding API failures
+
+---
+# Technology Stack
+
+tech_stack:
+  backend:
+    language: "Go 1.26"
+    framework: "Chi v5"
+    orm: "sqlc (type-safe SQL)"
+    validation: "go-playground/validator"
+    logging: "slog (stdlib)"
+    config: "envconfig + YAML"
+
+  database:
+    primary: "PostgreSQL 16"
+    vector: "pgvector extension"
+    migrations: "golang-migrate"
+
+  cache:
+    provider: "Redis 7 / Upstash"
+    client: "go-redis/redis"
+
+  embeddings:
+    primary: "OpenAI text-embedding-3-small"
+    fallback: "Local model (future)"
+    dimensions: 1536
+
+  infrastructure:
+    hosting: "Fly.io / Railway"
+    ci_cd: "GitHub Actions"
+    containers: "Docker"
+    secrets: "Doppler / Infisical"
+
+  plugin:
+    language: "TypeScript"
+    framework: "Claude Code Plugin SDK"
+    bundler: "esbuild"

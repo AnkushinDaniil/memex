@@ -1,0 +1,100 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+bin/
+*.exe
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+coverage/
+.nyc_output/
+coverage.out
+coverage.html
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Secrets (NEVER commit)
+*.pem
+*.key
+credentials.json
+secrets.yaml
+
+# ===================================================================
+# OMC - Oh My Claude Code (ALL state is session/user-specific)
+# ===================================================================
+.omc/state/                    # All state files (sessions, agents, teams)
+.omc/sessions/                 # Session metadata
+.omc/research/                 # Research outputs
+.omc/project-memory.json       # Contains user-specific paths
+.omc/notepad.md                # Session working memory
+.omc/plans/                    # Planning documents (may contain ideas)
+
+# ===================================================================
+# Agent Task Tracking (personal work and ideas)
+# ===================================================================
+.agent/tasks/                  # Work-in-progress tasks
+.agent/memory/                 # Memory bank (if contains personal notes)
+
+# ===================================================================
+# Claude Code Settings (user-specific configuration)
+# ===================================================================
+.claude/settings.local.json    # User-specific permissions
+.claude/handoffs/              # Session handoff data
+.claude/plans/                 # Planning files (may contain ideas)
+
+# ===================================================================
+# Go Build Artifacts
+# ===================================================================
+bin/                           # Compiled binaries directory
+*.exe                          # Windows executables
+memex                          # Compiled memex binary (Unix)
+server                         # Compiled server binary (Unix)
+*.test                         # Test binaries
+*.out                          # Go build output
+
+# ===================================================================
+# Go Coverage & Testing
+# ===================================================================
+coverage.out                   # Coverage data
+coverage.html                  # Coverage report
+*.prof                         # Profile files
+*.test                         # Test binaries
+
+# ===================================================================
+# Security Scan Reports
+# ===================================================================
+trivy-results.sarif           # Trivy security scan results
+govulncheck-report.json       # Vulnerability check results
+*.sarif                        # Any SARIF format reports
+
+# ===================================================================
+# Local Development
+# ===================================================================
+.turbo/
+.vercel/

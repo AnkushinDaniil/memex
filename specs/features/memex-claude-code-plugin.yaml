@@ -1,0 +1,458 @@
+# Memex Claude Code Plugin Specification
+# Version: 1.0.0
+
+plugin:
+  name: "memex"
+  display_name: "Memex - Persistent AI Memory"
+  description: "Give Claude Code persistent memory across sessions"
+  version: "0.1.0"
+  author: "Memex"
+  repository: "github.com/memex-dev/claude-code-plugin"
+
+---
+# Plugin Structure
+
+structure:
+  files:
+    - "package.json"           # Plugin manifest
+    - "src/index.ts"           # Main entry point
+    - "src/commands.ts"        # Slash commands
+    - "src/hooks.ts"           # Lifecycle hooks
+    - "src/api.ts"             # Backend API client
+    - "src/storage.ts"         # Local storage/cache
+    - "src/context.ts"         # Context injection logic
+    - "src/ui.ts"              # UI components (indicators, dashboard)
+    - "src/types.ts"           # TypeScript types
+
+---
+# Manifest (package.json)
+
+manifest:
+  name: "memex"
+  version: "0.1.0"
+  description: "Persistent AI Memory for Claude Code"
+  main: "dist/index.js"
+  claude_code:
+    type: "plugin"
+    permissions:
+      - "hooks:session"
+      - "hooks:prompt"
+      - "commands"
+      - "context:inject"
+      - "storage:local"
+      - "network"
+    hooks:
+      - "session:start"
+      - "session:end"
+      - "prompt:before"
+      - "prompt:after"
+    commands:
+      - name: "memex"
+        description: "Memex memory commands"
+        subcommands:
+          - "remember"
+          - "recall"
+          - "forget"
+          - "show"
+          - "export"
+          - "import"
+          - "status"
+          - "config"
+
+---
+# Commands Specification
+
+commands:
+  remember:
+    syntax: "/memex remember <content>"
+    aliases: ["/memex r", "/remember"]
+    description: "Store something in permanent memory"
+    examples:
+      - "/memex remember We use PostgreSQL for the main database"
+      - "/memex remember Auth is handled by Clerk, tokens in cookies"
+      - "/memex remember Never use console.log in production code"
+    behavior:
+      1: "Parse content from command"
+      2: "Send to backend API"
+      3: "Generate embedding"
+      4: "Store as explicit memory with high priority"
+      5: "Show confirmation with memory ID"
+    options:
+      --tags: "Comma-separated tags"
+      --priority: "low, normal, high (default: high for explicit)"
+
+  recall:
+    syntax: "/memex recall <query>"
+    aliases: ["/memex q", "/recall"]
+    description: "Search memories and display results"
+    examples:
+      - "/memex recall What database do we use?"
+      - "/memex recall authentication decisions"
+      - "/memex recall error handling patterns"
+    behavior:
+      1: "Send query to backend"
+      2: "Perform hybrid search"
+      3: "Format results with relevance scores"
+      4: "Display in readable format"
+    options:
+      --limit: "Number of results (default: 5)"
+      --type: "Filter by type (explicit, auto, session)"
+
+  forget:
+    syntax: "/memex forget <query|--all|--session>"
+    aliases: ["/memex f", "/forget"]
+    description: "Delete memories"
+    examples:
+      - "/memex forget authentication"
+      - "/memex forget --session"
+      - "/memex forget --all"
+    behavior:
+      1: "If query: search for matching memories"
+      2: "Show matches and ask for confirmation"
+      3: "Delete confirmed memories"
+      4: "Show deletion summary"
+    options:
+      --force: "Skip confirmation"
+      --session: "Delete current session memories only"
+      --all: "Delete ALL project memories (requires --force)"
+
+  show:
+    syntax: "/memex show [recent|all|search <query>]"
+    aliases: ["/memex ls", "/memex list"]
+    description: "Display stored memories"
+    examples:
+      - "/memex show"
+      - "/memex show recent"
+      - "/memex show all"
+    behavior:
+      1: "Fetch memories from backend"
+      2: "Format as table or list"
+      3: "Show metadata (type, created, retrieval count)"
+    options:
+      --limit: "Number to show (default: 10)"
+      --type: "Filter by type"
+      --format: "table, list, json"
+
+  export:
+    syntax: "/memex export [path]"
+    description: "Export project memories to JSON file"
+    examples:
+      - "/memex export"
+      - "/memex export ./memories-backup.json"
+    behavior:
+      1: "Fetch all memories from backend"
+      2: "Format as JSON"
+      3: "Write to file (default: .memex/memories.json)"
+      4: "Show export summary"
+
+  import:
+    syntax: "/memex import <path>"
+    description: "Import memories from JSON file"
+    examples:
+      - "/memex import ./memories-backup.json"
+    behavior:
+      1: "Read and validate JSON file"
+      2: "Show preview of memories to import"
+      3: "Ask for confirmation"
+      4: "Send to backend"
+      5: "Show import summary"
+    options:
+      --mode: "merge (default) or replace"
+
+  status:
+    syntax: "/memex status"
+    aliases: ["/memex s"]
+    description: "Show memory status and statistics"
+    output:
+      - "Connection status"
+      - "Project name"
+      - "Total memories"
+      - "Storage used"
+      - "Recent activity"
+      - "Tier and limits"
+
+  config:
+    syntax: "/memex config [key] [value]"
+    description: "View or set configuration"
+    settings:
+      auto_capture: "Enable automatic session capture (true/false)"
+      context_injection: "Enable automatic context injection (true/false)"
+      max_context_tokens: "Max tokens to inject (number)"
+      show_indicators: "Show memory indicators in UI (true/false)"
+      api_endpoint: "Backend API URL"
+
+---
+# Hooks Specification
+
+hooks:
+  session_start:
+    trigger: "When Claude Code session starts"
+    behavior:
+      1: "Check authentication"
+      2: "Identify/create project from working directory"
+      3: "Create session in backend"
+      4: "Load recent memories into local cache"
+      5: "Show subtle 'Memory connected' indicator"
+    failure_mode: "Graceful degradation - work without memory"
+
+  session_end:
+    trigger: "When Claude Code session ends"
+    behavior:
+      1: "Extract session summary (key decisions, changes)"
+      2: "Send summary to backend as session memory"
+      3: "End session in backend"
+      4: "Clear local cache"
+    auto_capture:
+      enabled: true
+      captures:
+        - "Key decisions made"
+        - "Files modified"
+        - "Errors resolved"
+        - "Patterns established"
+
+  prompt_before:
+    trigger: "Before each prompt is sent to Claude"
+    behavior:
+      1: "Analyze prompt content"
+      2: "Query backend for relevant memories"
+      3: "Inject memories into system context"
+      4: "Track what was injected (for audit)"
+    injection:
+      format: |
+        <memex_context>
+        The following is relevant context from previous sessions:
+
+        {memories}
+
+        Use this context to inform your response, but prioritize the user's current request.
+        </memex_context>
+      max_tokens: 2000
+      relevance_threshold: 0.7
+
+  prompt_after:
+    trigger: "After Claude's response is received"
+    behavior:
+      1: "Analyze response for memorable content"
+      2: "If significant decision/pattern detected, offer to remember"
+      3: "Update retrieval counts for used memories"
+    auto_detect:
+      patterns:
+        - "We'll use X for Y"
+        - "The pattern for X is"
+        - "Remember to always"
+        - "Don't ever"
+        - "Important: "
+
+---
+# UI Components
+
+ui:
+  memory_indicator:
+    location: "Status bar"
+    states:
+      connected:
+        icon: "brain"
+        color: "green"
+        tooltip: "Memex connected - {n} memories"
+      injected:
+        icon: "brain-pulse"
+        color: "blue"
+        tooltip: "Memory injected into context"
+        expandable: true
+        shows: "List of memories used"
+      disconnected:
+        icon: "brain-off"
+        color: "gray"
+        tooltip: "Memex disconnected"
+      error:
+        icon: "brain-warning"
+        color: "red"
+        tooltip: "Memex error: {message}"
+
+  injection_notice:
+    trigger: "When memories are injected"
+    format: |
+      ╭─ Memex Context ───────────────────────╮
+      │ Retrieved {n} memories ({tokens} tokens)  │
+      │ [View details] [Disable for this prompt]  │
+      ╰───────────────────────────────────────╯
+    expandable: true
+    shows:
+      - Memory previews
+      - Relevance scores
+      - Links to full memories
+
+  dashboard:
+    trigger: "/memex dashboard or click indicator"
+    sections:
+      overview:
+        - Total memories
+        - Storage used / limit
+        - Session activity
+      recent_memories:
+        - List with previews
+        - Edit/delete actions
+      retrieval_history:
+        - What was retrieved
+        - When and for what prompts
+      settings:
+        - All config options
+        - API key management
+
+---
+# Local Storage
+
+local_storage:
+  location: "~/.memex/ or .memex/ in project"
+  files:
+    config.json:
+      api_endpoint: "https://api.memex.dev/v1"
+      api_key: "encrypted"
+      project_id: "uuid"
+      settings: {}
+
+    cache.json:
+      description: "Hot memory cache for fast access"
+      max_size: "100 memories"
+      ttl: "1 hour"
+      structure:
+        memories: []
+        last_sync: "timestamp"
+
+    session.json:
+      description: "Current session state"
+      structure:
+        session_id: "uuid"
+        started_at: "timestamp"
+        memories_used: []
+        pending_captures: []
+
+  encryption:
+    api_key: "System keychain or encrypted file"
+    method: "AES-256-GCM with machine-derived key"
+
+---
+# API Client
+
+api_client:
+  base_url: "configurable, default https://api.memex.dev/v1"
+
+  methods:
+    authenticate:
+      endpoint: "POST /auth/token"
+      body: { api_key: "string" }
+      returns: { token: "jwt", expires_at: "datetime" }
+
+    create_memory:
+      endpoint: "POST /projects/{project_id}/memories"
+      body: { content: "string", type: "string", tags: "string[]", priority: "string" }
+      returns: { memory: "Memory" }
+
+    search_memories:
+      endpoint: "POST /projects/{project_id}/search"
+      body: { query: "string", limit: "number", threshold: "number" }
+      returns: { results: "SearchResult[]" }
+
+    get_context:
+      endpoint: "POST /projects/{project_id}/context"
+      body: { prompt: "string", max_tokens: "number" }
+      returns: { context: "string", memories_used: "MemoryReference[]" }
+
+    delete_memory:
+      endpoint: "DELETE /projects/{project_id}/memories/{memory_id}"
+      returns: { deleted: "boolean" }
+
+    start_session:
+      endpoint: "POST /projects/{project_id}/sessions"
+      returns: { session: "Session" }
+
+    end_session:
+      endpoint: "DELETE /projects/{project_id}/sessions/{session_id}"
+      body: { summary: "string", save_as_memory: "boolean" }
+      returns: { ended: "boolean", memory_id: "string?" }
+
+  error_handling:
+    retry:
+      max_attempts: 3
+      backoff: "exponential"
+      retryable: [429, 500, 502, 503, 504]
+    fallback:
+      on_failure: "Work offline, queue operations"
+      sync_on_reconnect: true
+
+---
+# Privacy & Security
+
+privacy:
+  data_sent_to_backend:
+    - Memory content (user-controlled)
+    - Search queries
+    - Session summaries (configurable)
+    - Project identifier
+  data_never_sent:
+    - Full prompts (only for context retrieval)
+    - Claude's responses (unless explicitly remembered)
+    - File contents (unless explicitly remembered)
+    - System information
+
+  user_controls:
+    - Disable auto-capture
+    - Disable context injection
+    - Clear all data
+    - Export data
+    - View all stored memories
+    - Delete any memory
+
+  local_mode:
+    description: "FREE forever - fully local operation, no cloud"
+    default: true  # Start in local mode, upgrade to cloud optional
+    storage:
+      database: "SQLite with sqlite-vec extension"
+      location: "~/.memex/local.db (global) or .memex/local.db (project)"
+      embeddings: "sqlite-vec for vector similarity search"
+    features:
+      - All commands work identically to cloud
+      - Unlimited storage (your disk)
+      - Unlimited projects
+      - Unlimited retention
+      - Full semantic search
+      - Works completely offline
+    technical:
+      sqlite_vec: "Embedded vector search, no external service"
+      embedding_generation: "Local model (all-MiniLM-L6-v2) or OpenAI API key"
+      size: "~50KB per memory with embedding"
+    limitations:
+      - Single device only
+      - No cross-device sync
+      - No team sharing
+      - Manual backups (export command)
+    upgrade_path:
+      trigger: "/memex upgrade or Settings"
+      benefits_shown:
+        - "Sync across devices"
+        - "Share with team"
+        - "Automatic backups"
+      preserves: "All local memories migrated to cloud"
+
+---
+# Installation & Setup
+
+installation:
+  steps:
+    1: "Install plugin via Claude Code"
+    2: "Run /memex config to set API key"
+    3: "Plugin auto-detects project from git root"
+    4: "Start using - no other config needed"
+
+  first_run:
+    - Check for existing .memex config
+    - If none, prompt for API key
+    - Create project in backend
+    - Show quick tutorial
+    - Offer sample commands
+
+  migration:
+    from_omc_notepad:
+      description: "Import from OMC notepad.md"
+      command: "/memex import --from-omc"
+      behavior: "Parse notepad.md and import as memories"
