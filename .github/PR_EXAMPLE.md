@@ -88,35 +88,6 @@ flowchart TD
     style Done fill:#238636,stroke:#2ea043,color:#ffffff
 ```
 
-**Quick Test:**
-```bash
-# Run tests
-make test
-
-# Expected: 9/9 pass
-✓ TestInitializeHandshake
-✓ TestToolsList
-✓ TestInvalidMethod
-✓ TestMalformedJSON
-✓ TestGracefulShutdown
-✓ TestToolsCallStub
-✓ TestInvalidToolCallParams
-✓ TestMultipleRequests
-✓ TestReadErrorHandling
-```
-
-**Manual Verification:**
-```bash
-# Test initialize
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./bin/memex
-
-# ✓ Returns: {"protocolVersion":"2024-11-05", "capabilities":{"tools":{}}, ...}
-```
-
----
-
-## 📋 Checklist
-
 - [x] Tests pass (9/9)
 - [x] Linter clean (0 issues)
 - [x] Race detector clean

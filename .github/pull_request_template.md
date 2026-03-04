@@ -58,19 +58,6 @@ flowchart TD
     style Done fill:#238636,stroke:#2ea043,color:#ffffff
 ```
 
-**Quick Test:**
-```bash
-# What to run
-make test
-
-# Expected output
-✓ All tests pass
-```
-
----
-
-## 📋 Checklist
-
 - [ ] Tests pass
 - [ ] Linter clean
 - [ ] No security issues
