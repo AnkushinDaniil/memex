@@ -1,144 +1,144 @@
-# AI Product Generator - Agent Orchestration System
+# Memex MCP Server
 
 ## Project Overview
 
-This is a **self-evolving AI product generation system** that creates developer tools with autonomous agent teams. The system minimizes human intervention while maximizing quality and revenue.
+This is a **Model Context Protocol (MCP) server** that provides persistent memory storage for AI assistants. Memex enables long-term memory capabilities through SQLite with full-text search (FTS5).
 
-**Product Type**: Developer Tool (API/SaaS)
+**Product Type**: MCP Server / Developer Tool
 **Language**: Go 1.26
-**Framework**: Chi (lightweight router)
-**Deployment**: Fly.io / Railway
-**Budget**: $50-200/month (bootstrap mode)
-**PR Approval**: Full AI Autonomy
+**Database**: SQLite with FTS5
+**Protocol**: MCP 2024-11-05 (JSON-RPC 2.0 over stdio)
+**Repository**: https://github.com/AnkushinDaniil/memex
 
 ## Core Architecture
 
-### Agent Teams
-
 ```
-OWNER (You) ─── Only intervene for: critical uncertainty, restart, payments
-     │
-     ▼
-MANAGEMENT ─── Orchestrator, Task Planner, Resource Allocator
-     │
-     ├─▶ RESEARCH ─── Market, Competitor, Trend, TRIZ Innovation
-     │
-     ├─▶ DEVELOPMENT ─── Architect, Backend, Frontend, DevOps
-     │
-     ├─▶ TESTING ─── Unit, Integration, E2E, Security
-     │
-     └─▶ REVIEW ─── Code, Security, Quality, API
-            │
-            ▼
-       AUTO-MERGE ─▶ RELEASE (semantic versioning)
-```
-
-### Specification Hierarchy
-
-1. **CONSTITUTIONAL** (specs/constitutional/) - IMMUTABLE constraints
-2. **ARCHITECTURAL** (specs/architectural/) - Owner-approved system design
-3. **FEATURE** (specs/features/) - AI-generated, human-reviewed
-4. **AUTONOMOUS** (specs/autonomous/) - AI-managed implementation details
-
-## Workflow Commands
-
-### Research Phase
-```
-/research <topic>          # Trigger market + TRIZ research
-/research-status           # Check research progress
-/present-findings          # Summarize for owner approval
+Claude/AI Assistant
+       │
+       ▼
+   MCP Client
+       │
+       ▼
+  Memex Server (stdio)
+       │
+       ├─▶ Memory Service
+       │      ├─ Create
+       │      ├─ Get
+       │      ├─ Search
+       │      ├─ List
+       │      └─ Delete
+       │
+       └─▶ SQLite Storage (FTS5)
 ```
 
-### Development Phase
-```
-/develop <feature-spec>    # Create tasks from spec
-/status                    # Overall pipeline status
-/escalate <issue>          # Flag for owner attention
-```
+## Technology Stack
 
-### Review Phase
-```
-/review <pr>               # Trigger full review cycle
-/approve                   # Manual override (rarely needed)
-/reject <reason>           # Block with feedback
-```
+- **Go 1.26**: Core implementation
+- **SQLite + FTS5**: Full-text search storage
+- **MCP Protocol**: Model Context Protocol (2024-11-05)
+- **JSON-RPC 2.0**: Communication protocol over stdio
+- **golangci-lint v2.10.1**: Code quality (25+ linters)
+- **govulncheck**: Vulnerability scanning
+- **Trivy**: Container security
 
-### Feedback Phase
-```
-/feedback ai <message>     # AI-to-AI feedback
-/feedback user <message>   # Simulate user feedback
-/feedback owner <message>  # Direct owner instruction
-```
+## Development Workflow
 
-## Constraints (ALWAYS ENFORCE)
+### Local Development
+```bash
+# Install dependencies
+go mod download
 
-### Security (Hard Block)
-- Never expose credentials
-- Never bypass authentication
-- Never log sensitive data
+# Build
+make build
 
-### Financial (Hard Block)
-- API spend < $200/month
-- No autonomous payments
-- Track token usage
+# Run
+make run
 
-### Deployment (Require Approval)
-- Production changes staged first
-- Rollback always available
-- Audit trail mandatory
-
-## Agent Communication Protocol
-
-### Task Assignment
-```yaml
-task:
-  id: "TASK-001"
-  from: "management-orchestrator"
-  to: "dev-backend"
-  type: "implement"
-  spec: "specs/features/auth-api.yaml"
-  priority: "high"
-  deadline: null  # No time estimates
+# Run with hot reload
+make dev
 ```
 
-### Status Report
-```yaml
-status:
-  from: "dev-backend"
-  task_id: "TASK-001"
-  state: "in_progress"
-  progress: 60
-  blockers: []
-  next_action: "implementing_tests"
+### Code Quality
+```bash
+# Run linter
+make lint
+
+# Format code
+make fmt
+
+# Run tests
+make test
+
+# Run tests with coverage
+make test-coverage
 ```
 
-### Escalation
-```yaml
-escalation:
-  from: "review-security"
-  to: "owner"
-  severity: "high"
-  issue: "Potential SQL injection in query"
-  recommendation: "Parameterize user input"
-  requires: "manual_review"
+### Security
+```bash
+# Vulnerability scan
+make vuln
+
+# Trivy scan
+make trivy
+
+# Full security audit
+make security
 ```
 
-## Feedback Integration
+### CI Pipeline
+```bash
+# Full CI (lint, test, coverage, security)
+make ci
 
-### Priority Formula
+# Quick CI (no security scans)
+make ci-quick
 ```
-priority = (impact × 0.3 + frequency × 0.2 + severity × 0.3 + source × 0.2) × decay
+
+## MCP Tools (Planned)
+
+The server will provide these MCP tools:
+
+- **memory_create**: Store a new memory with content, tags, and project ID
+- **memory_get**: Retrieve a specific memory by ID
+- **memory_search**: Full-text search across all memories
+- **memory_list**: List recent memories with optional filtering
+- **memory_delete**: Remove a memory by ID
+
+## Configuration
+
+Environment variables:
+```bash
+MEMEX_DB_PATH    # Database path (default: ./memex.db)
+MEMEX_MODE       # Mode: development or production
 ```
 
-### Source Authority
-- owner: 1.0 (immediate apply)
-- user_explicit: 0.7 (queue for review)
-- user_implicit: 0.3 (aggregate first)
-- ai: 0.5 (auto-apply if improvement > 5%)
+## CI/CD
 
-## Release Automation
+GitHub Actions workflows:
 
-### Commit Convention
+### CI Workflow (.github/workflows/ci.yml)
+- Triggers: Push to main/develop, PRs
+- Linting with golangci-lint v2.10.1
+- Tests with race detector
+- Coverage threshold (80% warning)
+- Security scanning (govulncheck + Trivy)
+- Builds memex binary
+
+### Release Workflow (.github/workflows/release.yml)
+- Triggers: Push to main branch
+- Quality gate (lint, test, security)
+- Semantic versioning (conventional commits)
+- Docker image build and push to ghcr.io
+- Automated changelog generation
+
+### Security Workflow (.github/workflows/security.yml)
+- Triggers: Daily at 2am UTC + manual
+- Vulnerability scanning
+- Container image scanning
+- Dependency review
+
+## Commit Convention
+
 ```
 <type>(<scope>): <description>
 
@@ -146,63 +146,82 @@ Types: feat, fix, perf, refactor, docs, test, chore
 Breaking: Add "!" after type (e.g., feat!:)
 ```
 
-### Version Bumps
+Version bumps:
 - `feat` → MINOR
 - `fix`, `perf` → PATCH
-- Breaking change → MAJOR
+- Breaking change (`!`) → MAJOR
 
-### Auto-Merge Criteria
-1. All tests pass
-2. Coverage threshold met (80%)
-3. All reviews approved
-4. No blockers flagged
+## Project Structure
 
-## TRIZ Innovation Integration
+```
+.
+├── cmd/
+│   └── memex/          # MCP server entry point
+├── internal/
+│   ├── config/         # Configuration
+│   ├── mcp/            # MCP protocol implementation
+│   ├── memory/         # Memory domain models
+│   └── storage/        # SQLite storage layer
+├── .github/workflows/  # CI/CD workflows
+├── Dockerfile          # Docker build
+├── Makefile            # Build automation
+└── go.mod              # Go dependencies
+```
 
-When facing contradictions, apply TRIZ principles:
+## Implementation Status
 
-| Problem | TRIZ Principle | Software Application |
-|---------|----------------|---------------------|
-| Performance vs Maintainability | #1 Segmentation | Microservices |
-| Scale vs Cost | #27 Cheap Short-lived | Serverless functions |
-| Speed vs Reliability | #26 Copying | Read replicas, CDNs |
-| Flexibility vs Stability | #15 Dynamics | Feature flags |
+Current status: **Foundation Complete**
+- ✅ Project structure
+- ✅ Configuration system
+- ✅ MCP protocol scaffolding
+- ✅ Storage interface
+- ✅ CI/CD pipelines
+- ⏳ Storage implementation (stub)
+- ⏳ MCP tools (stub)
+- ⏳ Full-text search (stub)
 
-## Budget Optimization
+## Development Guidelines
 
-### Token Efficiency
-- Cache common queries
-- Optimize prompts for shorter responses
-- Use cheaper models for simple tasks (haiku for exploration)
+### Code Quality
+- All code must pass golangci-lint (25+ linters)
+- Coverage threshold: 80% (warning, not blocking)
+- No HIGH/CRITICAL security vulnerabilities
+- All errors must be handled
 
-### Infrastructure
-- Vercel free tier (100GB bandwidth)
-- Supabase free tier (500MB database)
-- Upstash free tier (10K commands/day)
+### Security
+- Never expose credentials
+- Never log sensitive data
+- Parameterize all SQL queries
+- Validate all user input
 
-### Alert Thresholds
-- 50% budget: notify
-- 80% budget: warn
-- 95% budget: throttle
+### Testing
+- Unit tests for all business logic
+- Race detector enabled
+- Coverage reports generated
+- Integration tests for storage
+
+### Git Workflow
+- Feature branches from main
+- Conventional commits required
+- All commits must pass CI
+- Semantic versioning automated
 
 ## Quick Reference
 
-### File Locations
-- Constitutional constraints: `specs/constitutional/constraints.yaml`
-- System architecture: `specs/architectural/system.yaml`
-- Agent definitions: `agents/{team}/{agent}.yaml`
-- Feedback config: `feedback/aggregator.yaml`
-- Release config: `releases/semantic-release.config.js`
-- State files: `.omc/state/`
+### Build Commands
+- `make build` - Build binary
+- `make run` - Run server
+- `make test` - Run tests
+- `make lint` - Run linter
+- `make ci` - Full CI pipeline
 
-### Key Agents
-- Orchestrator: `agents/management/orchestrator.yaml`
-- TRIZ Innovator: `agents/research/triz-innovator.yaml`
-- Code Reviewer: `agents/review/code-reviewer.yaml`
+### Docker
+- `make docker-build` - Build image
+- `make docker-run` - Run container
 
-### When to Notify Owner
-1. Confidence < 70% on high-impact decision
-2. Constitutional constraint conflict
-3. Budget threshold exceeded (80%+)
-4. Novel situation not in spec
-5. Security vulnerability detected
+### Files
+- Entry point: `cmd/memex/main.go`
+- MCP server: `internal/mcp/server.go`
+- Storage: `internal/storage/sqlite.go`
+- CI: `.github/workflows/ci.yml`
+- Release: `.github/workflows/release.yml`

@@ -6,7 +6,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/ai-product-generator/internal/memory"
+	"github.com/AnkushinDaniil/memex/internal/memory"
 )
 
 // ErrNotImplemented is returned when a method is not yet implemented

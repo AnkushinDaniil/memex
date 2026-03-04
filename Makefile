@@ -1,5 +1,5 @@
-# AI Product Generator - Makefile
-# Go-based self-evolving developer tool
+# Memex MCP Server - Makefile
+# Go-based Model Context Protocol server for persistent memory
 
 .PHONY: all build run test lint clean help vuln trivy trivy-image security fmt-check deps deps-check deps-verify ci ci-quick
 
@@ -10,20 +10,15 @@ COVERAGE_THRESHOLD ?= 80
 # Default target
 all: lint test build
 
-# Build the binary
+# Build the memex binary
 build:
-	@echo "Building..."
-	go build $(LDFLAGS) -o bin/server ./cmd/server
-
-# Build memex MCP server
-build-memex:
 	@echo "Building memex MCP server..."
 	go build $(LDFLAGS) -o bin/memex ./cmd/memex
 
-# Run the server
+# Run the memex server
 run:
-	@echo "Running server..."
-	go run $(LDFLAGS) ./cmd/server
+	@echo "Running memex MCP server..."
+	go run $(LDFLAGS) ./cmd/memex
 
 # Run with hot reload (requires air)
 dev:
@@ -67,7 +62,7 @@ trivy:
 # Scan Docker image
 trivy-image: docker-build
 	@echo "Running Trivy image scan..."
-	trivy image --severity HIGH,CRITICAL ai-product-generator:$(VERSION)
+	trivy image --severity HIGH,CRITICAL memex:$(VERSION)
 
 # Full security audit
 security: vuln trivy
@@ -103,7 +98,7 @@ fmt:
 	@which gofumpt > /dev/null || go install mvdan.cc/gofumpt@latest
 	gofumpt -w .
 	@which gci > /dev/null || go install github.com/daixiang0/gci@latest
-	gci write --skip-generated -s standard -s default -s "prefix(github.com/ai-product-generator)" .
+	gci write --skip-generated -s standard -s default -s "prefix(github.com/AnkushinDaniil/memex)" .
 
 # Check formatting (CI mode - no write)
 fmt-check:
@@ -146,20 +141,19 @@ tools:
 
 # Docker build
 docker-build:
-	docker build -t ai-product-generator:$(VERSION) .
+	docker build -t memex:$(VERSION) .
 
 # Docker run
 docker-run:
-	docker run -p 3000:3000 ai-product-generator:$(VERSION)
+	docker run memex:$(VERSION)
 
 # Help
 help:
 	@echo "Available targets:"
 	@echo ""
 	@echo "BUILD & RUN:"
-	@echo "  build          - Build the server binary"
-	@echo "  build-memex    - Build memex MCP server"
-	@echo "  run            - Run the server"
+	@echo "  build          - Build the memex MCP server binary"
+	@echo "  run            - Run the memex server"
 	@echo "  dev            - Run with hot reload"
 	@echo ""
 	@echo "TESTING:"

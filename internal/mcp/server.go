@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/ai-product-generator/internal/memory"
+	"github.com/AnkushinDaniil/memex/internal/memory"
 )
 
 // Server represents the MCP server

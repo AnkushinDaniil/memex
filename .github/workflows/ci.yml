@@ -101,7 +101,6 @@ jobs:
 
       - name: Build
         run: |
-          go build -o bin/server ./cmd/server
           go build -o bin/memex ./cmd/memex
 
       - name: Upload artifacts

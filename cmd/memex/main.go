@@ -5,10 +5,10 @@ import (
 	"log"
 	"os"
 
-	"github.com/ai-product-generator/internal/config"
-	"github.com/ai-product-generator/internal/mcp"
-	"github.com/ai-product-generator/internal/memory"
-	"github.com/ai-product-generator/internal/storage"
+	"github.com/AnkushinDaniil/memex/internal/config"
+	"github.com/AnkushinDaniil/memex/internal/mcp"
+	"github.com/AnkushinDaniil/memex/internal/memory"
+	"github.com/AnkushinDaniil/memex/internal/storage"
 )
 
 func main() {

@@ -1,31 +1,36 @@
-# AI Product Generator
+# Memex MCP Server
 
-A self-evolving AI-driven product generation system that creates developer tools with autonomous agent teams.
+A Model Context Protocol (MCP) server for persistent memory storage and retrieval. Memex provides AI assistants with long-term memory capabilities through SQLite with full-text search.
+
+## Features
+
+- **MCP Protocol**: Implements the Model Context Protocol (2024-11-05) for seamless integration with Claude and other AI assistants
+- **Full-Text Search**: SQLite with FTS5 for fast, efficient memory retrieval
+- **Persistent Storage**: Durable memory storage across sessions
+- **Project Isolation**: Organize memories by project
+- **Tag System**: Categorize and filter memories with tags
+- **Stdio Communication**: Standard JSON-RPC 2.0 protocol over stdin/stdout
 
 ## Architecture
 
 ```
-OWNER ─── Only intervene for: critical uncertainty, restart, payments
-   │
-   ▼
-MANAGEMENT ─── Orchestrator, Task Planner, Resource Allocator
-   │
-   ├─▶ RESEARCH ─── Market, Competitor, Trend, TRIZ Innovation
-   ├─▶ DEVELOPMENT ─── Architect, Backend, Frontend, DevOps
-   ├─▶ TESTING ─── Unit, Integration, E2E, Security
-   └─▶ REVIEW ─── Code, Security, Quality, API
-          │
-          ▼
-     AUTO-MERGE ─▶ RELEASE (semantic versioning)
+Claude/AI Assistant
+       │
+       ▼
+   MCP Client
+       │
+       ▼
+  Memex Server (stdio)
+       │
+       ├─▶ Memory Service
+       │      ├─ Create
+       │      ├─ Get
+       │      ├─ Search
+       │      ├─ List
+       │      └─ Delete
+       │
+       └─▶ SQLite Storage (FTS5)
 ```
-
-## Features
-
-- **Self-Evolving**: Continuous improvement through automated feedback loops
-- **TRIZ Innovation**: Systematic problem-solving using 40 inventive principles
-- **Spec-First**: All development traces back to specifications
-- **Full AI Autonomy**: PRs auto-approved after passing all reviews
-- **Three-Tier Feedback**: AI-to-AI, User, and Owner feedback channels
 
 ## Quick Start
 
@@ -33,50 +38,77 @@ MANAGEMENT ─── Orchestrator, Task Planner, Resource Allocator
 # Install dependencies
 go mod download
 
-# Run development server
+# Build the server
+make build
+
+# Run the server
+./bin/memex
+
+# Or use during development
 make run
+```
 
-# Run with hot reload
-make dev
+## Configuration
 
+The server can be configured via environment variables:
+
+```bash
+# Database path (default: ./memex.db)
+MEMEX_DB_PATH=/path/to/database.db
+
+# Mode: development or production (default: development)
+MEMEX_MODE=production
+```
+
+Or use a `.env` file:
+
+```env
+MEMEX_DB_PATH=./data/memex.db
+MEMEX_MODE=development
+```
+
+## MCP Tools
+
+Memex provides the following MCP tools:
+
+- **memory_create**: Store a new memory
+- **memory_get**: Retrieve a specific memory by ID
+- **memory_search**: Full-text search across all memories
+- **memory_list**: List recent memories with optional filtering
+- **memory_delete**: Remove a memory
+
+## Development
+
+```bash
 # Run tests
 make test
 
 # Run linter
 make lint
+
+# Format code
+make fmt
+
+# Run all checks
+make ci
 ```
 
-## Configuration
+## Technology Stack
 
 - **Language**: Go 1.26
-- **Framework**: Chi (lightweight router)
-- **Budget**: $50-200/month (bootstrap mode)
-- **Deployment**: Fly.io / Railway
-- **Database**: Supabase PostgreSQL
-- **Cache**: Upstash Redis
+- **Database**: SQLite with FTS5
+- **Protocol**: MCP (Model Context Protocol)
+- **Communication**: JSON-RPC 2.0 over stdio
 
-## Agent Teams
+## CI/CD
 
-| Team | Agents | Purpose |
-|------|--------|---------|
-| Research | 4 | Market analysis, TRIZ innovation |
-| Management | 3 | Task planning, coordination |
-| Development | 4 | Architecture, implementation |
-| Testing | 4 | Quality assurance |
-| Review | 4 | Code quality, security |
+The project uses GitHub Actions for continuous integration:
 
-## Feedback System
-
-1. **AI-to-AI**: Automated, continuous improvement
-2. **User**: Queued for review, prioritized by impact
-3. **Owner**: Immediate application, highest priority
-
-## Release Automation
-
-- Conventional commits required
-- Semantic versioning (auto-bumped)
-- Changelog auto-generated
-- Full AI autonomy for merges
+- **Linting**: golangci-lint v2.10.1
+- **Testing**: Unit tests with race detector
+- **Security**: govulncheck + Trivy scanning
+- **Coverage**: 80% threshold (warning)
+- **Release**: Automated semantic versioning
 
 ## License
 
