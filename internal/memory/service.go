@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +20,7 @@ func NewService(storage Storage) *Service {
 }
 
 // Remember stores a new memory with optional code anchors
-func (s *Service) Remember(content string, tags []string, priority, projectID string, memType MemoryType, anchors []CodeAnchor) (*Memory, error) {
+func (s *Service) Remember(ctx context.Context, content string, tags []string, priority, projectID string, memType MemoryType, anchors []CodeAnchor) (*Memory, error) {
 	now := time.Now()
 
 	mem := &Memory{
@@ -36,7 +37,7 @@ func (s *Service) Remember(content string, tags []string, priority, projectID st
 	}
 
 	// Create the memory
-	if err := s.storage.Create(mem); err != nil {
+	if err := s.storage.Create(ctx, mem); err != nil {
 		return nil, err
 	}
 
@@ -44,7 +45,7 @@ func (s *Service) Remember(content string, tags []string, priority, projectID st
 	for i := range anchors {
 		anchors[i].ID = uuid.New().String()
 		anchors[i].MemoryID = mem.ID
-		if err := s.storage.CreateAnchor(&anchors[i]); err != nil {
+		if err := s.storage.CreateAnchor(ctx, &anchors[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -54,24 +55,24 @@ func (s *Service) Remember(content string, tags []string, priority, projectID st
 }
 
 // Recall searches for memories using full-text search
-func (s *Service) Recall(query SearchQuery) ([]SearchResult, error) {
-	return s.storage.Search(query)
+func (s *Service) Recall(ctx context.Context, query *SearchQuery) ([]SearchResult, error) {
+	return s.storage.Search(ctx, query)
 }
 
 // RecallContext retrieves memories for a specific code context
-func (s *Service) RecallContext(ctx CodeContext, projectID string) ([]MemoryWithRelevance, error) {
+func (s *Service) RecallContext(ctx context.Context, codeCtx CodeContext, projectID string) ([]MemoryWithRelevance, error) {
 	var results []MemoryWithRelevance
 
 	// 1. Exact anchor matches (highest relevance)
-	if ctx.File != "" && ctx.StartLine > 0 {
-		exactMatches, err := s.storage.FindMemoriesByAnchor(ctx.File, ctx.StartLine)
+	if codeCtx.File != "" && codeCtx.StartLine > 0 {
+		exactMatches, err := s.storage.FindMemoriesByAnchor(ctx, codeCtx.File, codeCtx.StartLine)
 		if err != nil {
 			return nil, err
 		}
 
-		for _, mem := range exactMatches {
+		for i := range exactMatches {
 			results = append(results, MemoryWithRelevance{
-				Memory:    mem,
+				Memory:    exactMatches[i],
 				Relevance: 1.0,
 				Reason:    "exact_anchor_match",
 			})
@@ -79,16 +80,16 @@ func (s *Service) RecallContext(ctx CodeContext, projectID string) ([]MemoryWith
 	}
 
 	// 2. Same file matches (medium relevance)
-	if ctx.File != "" {
-		fileMatches, err := s.storage.FindMemoriesInFile(ctx.File)
+	if codeCtx.File != "" {
+		fileMatches, err := s.storage.FindMemoriesInFile(ctx, codeCtx.File)
 		if err != nil {
 			return nil, err
 		}
 
-		for _, mem := range fileMatches {
-			if !containsMemory(results, mem.ID) {
+		for i := range fileMatches {
+			if !containsMemory(results, fileMatches[i].ID) {
 				results = append(results, MemoryWithRelevance{
-					Memory:    mem,
+					Memory:    fileMatches[i],
 					Relevance: 0.7,
 					Reason:    "same_file",
 				})
@@ -98,8 +99,8 @@ func (s *Service) RecallContext(ctx CodeContext, projectID string) ([]MemoryWith
 
 	// 3. Check staleness for all memories
 	for i := range results {
-		if ctx.Code != "" {
-			results[i].Memory.IsStale = DetectChanges(&results[i].Memory, ctx.Code)
+		if codeCtx.Code != "" {
+			results[i].Memory.IsStale = DetectChanges(&results[i].Memory, codeCtx.Code)
 		}
 	}
 
@@ -107,17 +108,17 @@ func (s *Service) RecallContext(ctx CodeContext, projectID string) ([]MemoryWith
 }
 
 // Forget deletes a memory
-func (s *Service) Forget(memoryID string) error {
-	return s.storage.Delete(memoryID)
+func (s *Service) Forget(ctx context.Context, memoryID string) error {
+	return s.storage.Delete(ctx, memoryID)
 }
 
 // List returns recent memories
-func (s *Service) List(projectID string, limit int, tags []string) ([]Memory, error) {
-	return s.storage.List(projectID, limit, tags)
+func (s *Service) List(ctx context.Context, projectID string, limit int, tags []string) ([]Memory, error) {
+	return s.storage.List(ctx, projectID, limit, tags)
 }
 
 // Connect creates a connection between two memories
-func (s *Service) Connect(fromID, toID string, relationship ConnectionType, description string) (*MemoryConnection, error) {
+func (s *Service) Connect(ctx context.Context, fromID, toID string, relationship ConnectionType, description string) (*MemoryConnection, error) {
 	conn := &MemoryConnection{
 		ID:           uuid.New().String(),
 		FromMemoryID: fromID,
@@ -127,7 +128,7 @@ func (s *Service) Connect(fromID, toID string, relationship ConnectionType, desc
 		CreatedAt:    time.Now(),
 	}
 
-	if err := s.storage.CreateConnection(conn); err != nil {
+	if err := s.storage.CreateConnection(ctx, conn); err != nil {
 		return nil, err
 	}
 
@@ -135,32 +136,32 @@ func (s *Service) Connect(fromID, toID string, relationship ConnectionType, desc
 }
 
 // GetConnectedMemories retrieves memories connected to the given memory
-func (s *Service) GetConnectedMemories(memoryID string, depth int) ([]Memory, error) {
+func (s *Service) GetConnectedMemories(ctx context.Context, memoryID string, depth int) ([]Memory, error) {
 	if depth == 0 {
 		depth = 2 // Default depth
 	}
-	return s.storage.GetConnectedMemories(memoryID, depth)
+	return s.storage.GetConnectedMemories(ctx, memoryID, depth)
 }
 
 // MarkStale marks a memory as stale
-func (s *Service) MarkStale(memoryID string) error {
-	return s.storage.MarkStale(memoryID, true)
+func (s *Service) MarkStale(ctx context.Context, memoryID string) error {
+	return s.storage.MarkStale(ctx, memoryID, true)
 }
 
 // MarkVerified marks a memory as verified (not stale)
-func (s *Service) MarkVerified(memoryID string) error {
-	return s.storage.MarkVerified(memoryID)
+func (s *Service) MarkVerified(ctx context.Context, memoryID string) error {
+	return s.storage.MarkVerified(ctx, memoryID)
 }
 
 // GetStaleMemories retrieves all stale memories for a project
-func (s *Service) GetStaleMemories(projectID string) ([]Memory, error) {
-	return s.storage.GetStaleMemories(projectID)
+func (s *Service) GetStaleMemories(ctx context.Context, projectID string) ([]Memory, error) {
+	return s.storage.GetStaleMemories(ctx, projectID)
 }
 
 // Helper function to check if a memory is already in results
 func containsMemory(results []MemoryWithRelevance, memoryID string) bool {
-	for _, r := range results {
-		if r.Memory.ID == memoryID {
+	for i := range results {
+		if results[i].Memory.ID == memoryID {
 			return true
 		}
 	}

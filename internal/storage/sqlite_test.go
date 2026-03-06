@@ -1,16 +1,20 @@
 package storage
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/AnkushinDaniil/memex/internal/memory"
-	"github.com/google/uuid"
+	"github.com/google/uuid" //nolint:gci // import grouping
+
+	"github.com/AnkushinDaniil/memex/internal/memory" //nolint:gci // project import
 )
 
-func setupTestDB(t *testing.T) *SQLiteStorage {
+func setupTestDB(t *testing.T) (*SQLiteStorage, context.Context) {
 	t.Helper()
+
+	ctx := context.Background()
 
 	// Create temp database
 	dbPath := "/tmp/memex_test_" + uuid.New().String() + ".db"
@@ -20,41 +24,41 @@ func setupTestDB(t *testing.T) *SQLiteStorage {
 	}
 
 	// Initialize schema
-	if err := storage.Initialize(); err != nil {
+	if err := storage.Initialize(ctx); err != nil {
 		t.Fatalf("Failed to initialize storage: %v", err)
 	}
 
 	// Cleanup on test completion
 	t.Cleanup(func() {
-		storage.Close()
-		os.Remove(dbPath)
+		_ = storage.Close()   //nolint:errcheck // test cleanup
+		_ = os.Remove(dbPath) //nolint:errcheck // test cleanup
 	})
 
-	return storage
+	return storage, ctx
 }
 
 func TestInitialize(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
 	// Verify tables exist by attempting a query
-	_, err := storage.db.Exec("SELECT 1 FROM memories LIMIT 1")
+	_, err := storage.db.ExecContext(ctx, "SELECT 1 FROM memories LIMIT 1")
 	if err != nil {
 		t.Errorf("memories table not created: %v", err)
 	}
 
-	_, err = storage.db.Exec("SELECT 1 FROM code_anchors LIMIT 1")
+	_, err = storage.db.ExecContext(ctx, "SELECT 1 FROM code_anchors LIMIT 1")
 	if err != nil {
 		t.Errorf("code_anchors table not created: %v", err)
 	}
 
-	_, err = storage.db.Exec("SELECT 1 FROM memory_connections LIMIT 1")
+	_, err = storage.db.ExecContext(ctx, "SELECT 1 FROM memory_connections LIMIT 1")
 	if err != nil {
 		t.Errorf("memory_connections table not created: %v", err)
 	}
 }
 
 func TestCreateMemory(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
 	mem := &memory.Memory{
 		ID:        uuid.New().String(),
@@ -68,13 +72,13 @@ func TestCreateMemory(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 
-	err := storage.Create(mem)
+	err := storage.Create(ctx, mem)
 	if err != nil {
 		t.Fatalf("Failed to create memory: %v", err)
 	}
 
 	// Retrieve and verify
-	retrieved, err := storage.Get(mem.ID)
+	retrieved, err := storage.Get(ctx, mem.ID)
 	if err != nil {
 		t.Fatalf("Failed to get memory: %v", err)
 	}
@@ -93,7 +97,7 @@ func TestCreateMemory(t *testing.T) {
 }
 
 func TestCreateMemoryWithAnchors(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
 	// Create memory
 	mem := &memory.Memory{
@@ -105,7 +109,7 @@ func TestCreateMemoryWithAnchors(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 
-	err := storage.Create(mem)
+	err := storage.Create(ctx, mem)
 	if err != nil {
 		t.Fatalf("Failed to create memory: %v", err)
 	}
@@ -121,13 +125,13 @@ func TestCreateMemoryWithAnchors(t *testing.T) {
 		GitCommit: "abc123",
 	}
 
-	err = storage.CreateAnchor(anchor)
+	err = storage.CreateAnchor(ctx, anchor)
 	if err != nil {
 		t.Fatalf("Failed to create anchor: %v", err)
 	}
 
 	// Retrieve anchors
-	anchors, err := storage.GetAnchorsByMemory(mem.ID)
+	anchors, err := storage.GetAnchorsByMemory(ctx, mem.ID)
 	if err != nil {
 		t.Fatalf("Failed to get anchors: %v", err)
 	}
@@ -142,7 +146,7 @@ func TestCreateMemoryWithAnchors(t *testing.T) {
 }
 
 func TestFindMemoriesByAnchor(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
 	// Create memory
 	mem := &memory.Memory{
@@ -154,7 +158,7 @@ func TestFindMemoriesByAnchor(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 
-	err := storage.Create(mem)
+	err := storage.Create(ctx, mem)
 	if err != nil {
 		t.Fatalf("Failed to create memory: %v", err)
 	}
@@ -168,13 +172,13 @@ func TestFindMemoriesByAnchor(t *testing.T) {
 		EndLine:   67,
 	}
 
-	err = storage.CreateAnchor(anchor)
+	err = storage.CreateAnchor(ctx, anchor)
 	if err != nil {
 		t.Fatalf("Failed to create anchor: %v", err)
 	}
 
 	// Find memories at line 50 (within range)
-	memories, err := storage.FindMemoriesByAnchor("internal/auth/session.go", 50)
+	memories, err := storage.FindMemoriesByAnchor(ctx, "internal/auth/session.go", 50)
 	if err != nil {
 		t.Fatalf("Failed to find memories: %v", err)
 	}
@@ -188,7 +192,7 @@ func TestFindMemoriesByAnchor(t *testing.T) {
 	}
 
 	// Try line outside range
-	memories, err = storage.FindMemoriesByAnchor("internal/auth/session.go", 100)
+	memories, err = storage.FindMemoriesByAnchor(ctx, "internal/auth/session.go", 100)
 	if err != nil {
 		t.Fatalf("Failed to find memories: %v", err)
 	}
@@ -199,7 +203,7 @@ func TestFindMemoriesByAnchor(t *testing.T) {
 }
 
 func TestFindMemoriesInFile(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
 	file := "internal/auth/session.go"
 
@@ -214,7 +218,7 @@ func TestFindMemoriesInFile(t *testing.T) {
 			UpdatedAt: time.Now(),
 		}
 
-		err := storage.Create(mem)
+		err := storage.Create(ctx, mem)
 		if err != nil {
 			t.Fatalf("Failed to create memory: %v", err)
 		}
@@ -227,14 +231,14 @@ func TestFindMemoriesInFile(t *testing.T) {
 			EndLine:   15 + i*20,
 		}
 
-		err = storage.CreateAnchor(anchor)
+		err = storage.CreateAnchor(ctx, anchor)
 		if err != nil {
 			t.Fatalf("Failed to create anchor: %v", err)
 		}
 	}
 
 	// Find all memories in file
-	memories, err := storage.FindMemoriesInFile(file)
+	memories, err := storage.FindMemoriesInFile(ctx, file)
 	if err != nil {
 		t.Fatalf("Failed to find memories: %v", err)
 	}
@@ -245,7 +249,7 @@ func TestFindMemoriesInFile(t *testing.T) {
 }
 
 func TestCreateConnection(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
 	// Create two memories
 	mem1 := &memory.Memory{
@@ -266,8 +270,12 @@ func TestCreateConnection(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 
-	storage.Create(mem1)
-	storage.Create(mem2)
+	if err := storage.Create(ctx, mem1); err != nil {
+		t.Fatalf("Failed to create memory 1: %v", err)
+	}
+	if err := storage.Create(ctx, mem2); err != nil {
+		t.Fatalf("Failed to create memory 2: %v", err)
+	}
 
 	// Create connection
 	conn := &memory.MemoryConnection{
@@ -279,13 +287,13 @@ func TestCreateConnection(t *testing.T) {
 		CreatedAt:    time.Now(),
 	}
 
-	err := storage.CreateConnection(conn)
+	err := storage.CreateConnection(ctx, conn)
 	if err != nil {
 		t.Fatalf("Failed to create connection: %v", err)
 	}
 
 	// Get connections
-	connections, err := storage.GetConnections(mem1.ID)
+	connections, err := storage.GetConnections(ctx, mem1.ID)
 	if err != nil {
 		t.Fatalf("Failed to get connections: %v", err)
 	}
@@ -300,12 +308,12 @@ func TestCreateConnection(t *testing.T) {
 }
 
 func TestGetConnectedMemories(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
 	// Create chain: mem1 -> mem2 -> mem3
-	mem1 := createTestMemory(storage, "Memory 1")
-	mem2 := createTestMemory(storage, "Memory 2")
-	mem3 := createTestMemory(storage, "Memory 3")
+	mem1 := createTestMemory(ctx, storage, "Memory 1")
+	mem2 := createTestMemory(ctx, storage, "Memory 2")
+	mem3 := createTestMemory(ctx, storage, "Memory 3")
 
 	// Create connections
 	conn1 := &memory.MemoryConnection{
@@ -324,11 +332,15 @@ func TestGetConnectedMemories(t *testing.T) {
 		CreatedAt:    time.Now(),
 	}
 
-	storage.CreateConnection(conn1)
-	storage.CreateConnection(conn2)
+	if err := storage.CreateConnection(ctx, conn1); err != nil {
+		t.Fatalf("Failed to create connection 1: %v", err)
+	}
+	if err := storage.CreateConnection(ctx, conn2); err != nil {
+		t.Fatalf("Failed to create connection 2: %v", err)
+	}
 
 	// Get connected memories with depth 1
-	connected, err := storage.GetConnectedMemories(mem1.ID, 1)
+	connected, err := storage.GetConnectedMemories(ctx, mem1.ID, 1)
 	if err != nil {
 		t.Fatalf("Failed to get connected memories: %v", err)
 	}
@@ -338,7 +350,7 @@ func TestGetConnectedMemories(t *testing.T) {
 	}
 
 	// Get connected memories with depth 2
-	connected, err = storage.GetConnectedMemories(mem1.ID, 2)
+	connected, err = storage.GetConnectedMemories(ctx, mem1.ID, 2)
 	if err != nil {
 		t.Fatalf("Failed to get connected memories: %v", err)
 	}
@@ -349,18 +361,18 @@ func TestGetConnectedMemories(t *testing.T) {
 }
 
 func TestMarkStale(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
-	mem := createTestMemory(storage, "Test memory")
+	mem := createTestMemory(ctx, storage, "Test memory")
 
 	// Mark as stale
-	err := storage.MarkStale(mem.ID, true)
+	err := storage.MarkStale(ctx, mem.ID, true)
 	if err != nil {
 		t.Fatalf("Failed to mark stale: %v", err)
 	}
 
 	// Retrieve and verify
-	retrieved, err := storage.Get(mem.ID)
+	retrieved, err := storage.Get(ctx, mem.ID)
 	if err != nil {
 		t.Fatalf("Failed to get memory: %v", err)
 	}
@@ -370,12 +382,12 @@ func TestMarkStale(t *testing.T) {
 	}
 
 	// Mark as not stale
-	err = storage.MarkStale(mem.ID, false)
+	err = storage.MarkStale(ctx, mem.ID, false)
 	if err != nil {
 		t.Fatalf("Failed to mark not stale: %v", err)
 	}
 
-	retrieved, err = storage.Get(mem.ID)
+	retrieved, err = storage.Get(ctx, mem.ID)
 	if err != nil {
 		t.Fatalf("Failed to get memory: %v", err)
 	}
@@ -386,21 +398,23 @@ func TestMarkStale(t *testing.T) {
 }
 
 func TestMarkVerified(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
-	mem := createTestMemory(storage, "Test memory")
+	mem := createTestMemory(ctx, storage, "Test memory")
 
 	// Mark as stale first
-	storage.MarkStale(mem.ID, true)
+	if err := storage.MarkStale(ctx, mem.ID, true); err != nil {
+		t.Fatalf("Failed to mark stale: %v", err)
+	}
 
 	// Mark as verified
-	err := storage.MarkVerified(mem.ID)
+	err := storage.MarkVerified(ctx, mem.ID)
 	if err != nil {
 		t.Fatalf("Failed to mark verified: %v", err)
 	}
 
 	// Retrieve and verify
-	retrieved, err := storage.Get(mem.ID)
+	retrieved, err := storage.Get(ctx, mem.ID)
 	if err != nil {
 		t.Fatalf("Failed to get memory: %v", err)
 	}
@@ -415,20 +429,24 @@ func TestMarkVerified(t *testing.T) {
 }
 
 func TestGetStaleMemories(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
 	projectID := "test-project"
 
 	// Create mix of stale and fresh memories
-	mem1 := createTestMemory(storage, "Stale memory 1")
-	mem2 := createTestMemory(storage, "Fresh memory")
-	mem3 := createTestMemory(storage, "Stale memory 2")
+	mem1 := createTestMemory(ctx, storage, "Stale memory 1")
+	mem2 := createTestMemory(ctx, storage, "Fresh memory")
+	mem3 := createTestMemory(ctx, storage, "Stale memory 2")
 
-	storage.MarkStale(mem1.ID, true)
-	storage.MarkStale(mem3.ID, true)
+	if err := storage.MarkStale(ctx, mem1.ID, true); err != nil {
+		t.Fatalf("Failed to mark mem1 stale: %v", err)
+	}
+	if err := storage.MarkStale(ctx, mem3.ID, true); err != nil {
+		t.Fatalf("Failed to mark mem3 stale: %v", err)
+	}
 
 	// Get stale memories
-	stale, err := storage.GetStaleMemories(projectID)
+	stale, err := storage.GetStaleMemories(ctx, projectID)
 	if err != nil {
 		t.Fatalf("Failed to get stale memories: %v", err)
 	}
@@ -446,21 +464,21 @@ func TestGetStaleMemories(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
-	mem := createTestMemory(storage, "Original content")
+	mem := createTestMemory(ctx, storage, "Original content")
 
 	// Update content
 	mem.Content = "Updated content"
 	mem.UpdatedAt = time.Now()
 
-	err := storage.Update(mem)
+	err := storage.Update(ctx, mem)
 	if err != nil {
 		t.Fatalf("Failed to update memory: %v", err)
 	}
 
 	// Retrieve and verify
-	retrieved, err := storage.Get(mem.ID)
+	retrieved, err := storage.Get(ctx, mem.ID)
 	if err != nil {
 		t.Fatalf("Failed to get memory: %v", err)
 	}
@@ -471,18 +489,18 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
-	mem := createTestMemory(storage, "To be deleted")
+	mem := createTestMemory(ctx, storage, "To be deleted")
 
 	// Delete memory
-	err := storage.Delete(mem.ID)
+	err := storage.Delete(ctx, mem.ID)
 	if err != nil {
 		t.Fatalf("Failed to delete memory: %v", err)
 	}
 
 	// Verify it's gone
-	retrieved, err := storage.Get(mem.ID)
+	retrieved, err := storage.Get(ctx, mem.ID)
 	if err == nil || err.Error() != "memory not found" {
 		t.Fatalf("Expected 'memory not found' error, got: %v", err)
 	}
@@ -493,21 +511,21 @@ func TestDelete(t *testing.T) {
 }
 
 func TestSearch(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
 	// Create memories with searchable content
-	createMemoryWithContent(storage, "Authentication bug fix with JWT tokens")
-	createMemoryWithContent(storage, "Cache optimization for session storage")
-	createMemoryWithContent(storage, "JWT token validation improvements")
+	createTestMemory(ctx, storage, "Authentication bug fix with JWT tokens")
+	createTestMemory(ctx, storage, "Cache optimization for session storage")
+	createTestMemory(ctx, storage, "JWT token validation improvements")
 
 	// Search for "JWT"
-	query := memory.SearchQuery{
+	query := &memory.SearchQuery{
 		Query:     "JWT",
 		ProjectID: "test-project",
 		Limit:     10,
 	}
 
-	results, err := storage.Search(query)
+	results, err := storage.Search(ctx, query)
 	if err != nil {
 		t.Fatalf("Failed to search: %v", err)
 	}
@@ -518,16 +536,16 @@ func TestSearch(t *testing.T) {
 }
 
 func TestList(t *testing.T) {
-	storage := setupTestDB(t)
+	storage, ctx := setupTestDB(t)
 
 	// Create several memories
 	for i := 0; i < 5; i++ {
 		time.Sleep(1 * time.Millisecond) // Ensure different timestamps
-		createTestMemory(storage, "Memory "+string(rune('A'+i)))
+		createTestMemory(ctx, storage, "Memory "+string(rune('A'+i)))
 	}
 
 	// List with limit
-	memories, err := storage.List("test-project", 3, nil)
+	memories, err := storage.List(ctx, "test-project", 3, nil)
 	if err != nil {
 		t.Fatalf("Failed to list memories: %v", err)
 	}
@@ -546,7 +564,7 @@ func TestList(t *testing.T) {
 
 // Helper functions
 
-func createTestMemory(storage *SQLiteStorage, content string) *memory.Memory {
+func createTestMemory(ctx context.Context, storage *SQLiteStorage, content string) *memory.Memory {
 	mem := &memory.Memory{
 		ID:        uuid.New().String(),
 		ProjectID: "test-project",
@@ -557,10 +575,6 @@ func createTestMemory(storage *SQLiteStorage, content string) *memory.Memory {
 		UpdatedAt: time.Now(),
 	}
 
-	storage.Create(mem)
+	_ = storage.Create(ctx, mem) //nolint:errcheck // test helper
 	return mem
-}
-
-func createMemoryWithContent(storage *SQLiteStorage, content string) *memory.Memory {
-	return createTestMemory(storage, content)
 }

@@ -1,13 +1,14 @@
 package memory
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 )
 
 // GetCurrentCommit returns the current git commit hash for a file
-func GetCurrentCommit(file string) (string, error) {
-	cmd := exec.Command("git", "log", "-1", "--format=%H", "--", file)
+func GetCurrentCommit(ctx context.Context, file string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "log", "-1", "--format=%H", "--", file) //nolint:gosec // file path is validated by caller
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -18,8 +19,8 @@ func GetCurrentCommit(file string) (string, error) {
 }
 
 // GetCommitsSince returns commits for a file since a given commit
-func GetCommitsSince(file, sinceCommit string) ([]string, error) {
-	cmd := exec.Command("git", "log", "--format=%H", sinceCommit+"..HEAD", "--", file)
+func GetCommitsSince(ctx context.Context, file, sinceCommit string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "git", "log", "--format=%H", sinceCommit+"..HEAD", "--", file) //nolint:gosec // inputs validated by caller
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -35,8 +36,8 @@ func GetCommitsSince(file, sinceCommit string) ([]string, error) {
 }
 
 // GetProjectRoot returns the git repository root directory
-func GetProjectRoot() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+func GetProjectRoot(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -47,8 +48,8 @@ func GetProjectRoot() (string, error) {
 }
 
 // IsGitRepo checks if the current directory is in a git repository
-func IsGitRepo() bool {
-	cmd := exec.Command("git", "rev-parse", "--git-dir")
+func IsGitRepo(ctx context.Context) bool {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--git-dir")
 	err := cmd.Run()
 	return err == nil
 }
