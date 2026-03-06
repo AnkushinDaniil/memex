@@ -1,11 +1,13 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 
-	"github.com/AnkushinDaniil/memex/internal/memory"
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" //nolint:gci // blank import for side effects
+
+	"github.com/AnkushinDaniil/memex/internal/memory" //nolint:gci // project import
 )
 
 // Build tags required for FTS5 support:
@@ -36,8 +38,8 @@ func NewSQLite(path string) (*SQLiteStorage, error) {
 	}
 
 	// Enable foreign keys
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		db.Close()
+	if _, err := db.ExecContext(context.Background(), "PRAGMA foreign_keys = ON"); err != nil {
+		_ = db.Close() //nolint:errcheck // error already being returned
 		return nil, err
 	}
 
@@ -48,7 +50,7 @@ func NewSQLite(path string) (*SQLiteStorage, error) {
 }
 
 // Initialize creates the database schema
-func (s *SQLiteStorage) Initialize() error {
+func (s *SQLiteStorage) Initialize(ctx context.Context) error {
 	schema := `
 	-- Main memories table
 	CREATE TABLE IF NOT EXISTS memories (
@@ -135,7 +137,7 @@ func (s *SQLiteStorage) Initialize() error {
 	END;
 	`
 
-	_, err := s.db.Exec(schema)
+	_, err := s.db.ExecContext(ctx, schema)
 	return err
 }
 
@@ -145,7 +147,7 @@ func (s *SQLiteStorage) Close() error {
 }
 
 // Create stores a new memory
-func (s *SQLiteStorage) Create(mem *memory.Memory) error {
+func (s *SQLiteStorage) Create(ctx context.Context, mem *memory.Memory) error {
 	query := `
 		INSERT INTO memories (id, project_id, content, type, code_hash, is_stale,
 			last_verified, tags, priority, retrieval_count, created_at, updated_at)
@@ -161,7 +163,7 @@ func (s *SQLiteStorage) Create(mem *memory.Memory) error {
 		tagsJSON += `"]`
 	}
 
-	_, err := s.db.Exec(query,
+	_, err := s.db.ExecContext(ctx, query,
 		mem.ID, mem.ProjectID, mem.Content, mem.Type,
 		mem.CodeHash, mem.IsStale, mem.LastVerified,
 		tagsJSON, mem.Priority, mem.RetrievalCount,
@@ -171,7 +173,7 @@ func (s *SQLiteStorage) Create(mem *memory.Memory) error {
 }
 
 // Get retrieves a memory by ID
-func (s *SQLiteStorage) Get(id string) (*memory.Memory, error) {
+func (s *SQLiteStorage) Get(ctx context.Context, id string) (*memory.Memory, error) {
 	query := `
 		SELECT id, project_id, content, type, code_hash, is_stale, last_verified,
 			tags, priority, retrieval_count, created_at, updated_at
@@ -183,13 +185,13 @@ func (s *SQLiteStorage) Get(id string) (*memory.Memory, error) {
 	var tagsJSON sql.NullString
 	var lastVerified sql.NullTime
 
-	err := s.db.QueryRow(query, id).Scan(
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&mem.ID, &mem.ProjectID, &mem.Content, &mem.Type,
 		&mem.CodeHash, &mem.IsStale, &lastVerified,
 		&tagsJSON, &mem.Priority, &mem.RetrievalCount,
 		&mem.CreatedAt, &mem.UpdatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
@@ -210,7 +212,7 @@ func (s *SQLiteStorage) Get(id string) (*memory.Memory, error) {
 }
 
 // Update updates an existing memory
-func (s *SQLiteStorage) Update(mem *memory.Memory) error {
+func (s *SQLiteStorage) Update(ctx context.Context, mem *memory.Memory) error {
 	query := `
 		UPDATE memories
 		SET content = ?, type = ?, code_hash = ?, is_stale = ?,
@@ -228,7 +230,7 @@ func (s *SQLiteStorage) Update(mem *memory.Memory) error {
 		tagsJSON += `"]`
 	}
 
-	_, err := s.db.Exec(query,
+	_, err := s.db.ExecContext(ctx, query,
 		mem.Content, mem.Type, mem.CodeHash, mem.IsStale,
 		mem.LastVerified, tagsJSON, mem.Priority,
 		mem.RetrievalCount, mem.UpdatedAt, mem.ID)
@@ -237,13 +239,13 @@ func (s *SQLiteStorage) Update(mem *memory.Memory) error {
 }
 
 // Delete removes a memory
-func (s *SQLiteStorage) Delete(id string) error {
-	_, err := s.db.Exec("DELETE FROM memories WHERE id = ?", id)
+func (s *SQLiteStorage) Delete(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM memories WHERE id = ?", id)
 	return err
 }
 
 // Search performs full-text search
-func (s *SQLiteStorage) Search(query memory.SearchQuery) ([]memory.SearchResult, error) {
+func (s *SQLiteStorage) Search(ctx context.Context, query *memory.SearchQuery) ([]memory.SearchResult, error) {
 	sqlQuery := `
 		SELECT m.id, m.project_id, m.content, m.type, m.code_hash, m.is_stale,
 			m.last_verified, m.tags, m.priority, m.retrieval_count,
@@ -261,11 +263,11 @@ func (s *SQLiteStorage) Search(query memory.SearchQuery) ([]memory.SearchResult,
 		limit = 10
 	}
 
-	rows, err := s.db.Query(sqlQuery, query.Query, query.ProjectID, limit)
+	rows, err := s.db.QueryContext(ctx, sqlQuery, query.Query, query.ProjectID, limit)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() //nolint:errcheck // cleanup in defer
 
 	var results []memory.SearchResult
 	for rows.Next() {
@@ -279,7 +281,6 @@ func (s *SQLiteStorage) Search(query memory.SearchQuery) ([]memory.SearchResult,
 			&mem.CodeHash, &mem.IsStale, &lastVerified,
 			&tagsJSON, &mem.Priority, &mem.RetrievalCount,
 			&mem.CreatedAt, &mem.UpdatedAt, &rank)
-
 		if err != nil {
 			return nil, err
 		}
@@ -298,7 +299,7 @@ func (s *SQLiteStorage) Search(query memory.SearchQuery) ([]memory.SearchResult,
 }
 
 // List returns recent memories
-func (s *SQLiteStorage) List(projectID string, limit int, tags []string) ([]memory.Memory, error) {
+func (s *SQLiteStorage) List(ctx context.Context, projectID string, limit int, _ []string) ([]memory.Memory, error) {
 	query := `
 		SELECT id, project_id, content, type, code_hash, is_stale, last_verified,
 			tags, priority, retrieval_count, created_at, updated_at
@@ -312,11 +313,11 @@ func (s *SQLiteStorage) List(projectID string, limit int, tags []string) ([]memo
 		limit = 20
 	}
 
-	rows, err := s.db.Query(query, projectID, limit)
+	rows, err := s.db.QueryContext(ctx, query, projectID, limit)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() //nolint:errcheck // cleanup in defer
 
 	var memories []memory.Memory
 	for rows.Next() {
@@ -329,7 +330,6 @@ func (s *SQLiteStorage) List(projectID string, limit int, tags []string) ([]memo
 			&mem.CodeHash, &mem.IsStale, &lastVerified,
 			&tagsJSON, &mem.Priority, &mem.RetrievalCount,
 			&mem.CreatedAt, &mem.UpdatedAt)
-
 		if err != nil {
 			return nil, err
 		}
@@ -345,13 +345,13 @@ func (s *SQLiteStorage) List(projectID string, limit int, tags []string) ([]memo
 }
 
 // CreateAnchor creates a code anchor
-func (s *SQLiteStorage) CreateAnchor(anchor *memory.CodeAnchor) error {
+func (s *SQLiteStorage) CreateAnchor(ctx context.Context, anchor *memory.CodeAnchor) error {
 	query := `
 		INSERT INTO code_anchors (id, memory_id, file, function, start_line, end_line, git_commit)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := s.db.Exec(query,
+	_, err := s.db.ExecContext(ctx, query,
 		anchor.ID, anchor.MemoryID, anchor.File, anchor.Function,
 		anchor.StartLine, anchor.EndLine, anchor.GitCommit)
 
@@ -359,18 +359,18 @@ func (s *SQLiteStorage) CreateAnchor(anchor *memory.CodeAnchor) error {
 }
 
 // GetAnchorsByMemory retrieves all anchors for a memory
-func (s *SQLiteStorage) GetAnchorsByMemory(memoryID string) ([]memory.CodeAnchor, error) {
+func (s *SQLiteStorage) GetAnchorsByMemory(ctx context.Context, memoryID string) ([]memory.CodeAnchor, error) {
 	query := `
 		SELECT id, file, function, start_line, end_line, git_commit
 		FROM code_anchors
 		WHERE memory_id = ?
 	`
 
-	rows, err := s.db.Query(query, memoryID)
+	rows, err := s.db.QueryContext(ctx, query, memoryID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() //nolint:errcheck // cleanup in defer
 
 	var anchors []memory.CodeAnchor
 	for rows.Next() {
@@ -380,7 +380,6 @@ func (s *SQLiteStorage) GetAnchorsByMemory(memoryID string) ([]memory.CodeAnchor
 
 		err := rows.Scan(&anchor.ID, &anchor.File, &function,
 			&anchor.StartLine, &anchor.EndLine, &gitCommit)
-
 		if err != nil {
 			return nil, err
 		}
@@ -399,7 +398,7 @@ func (s *SQLiteStorage) GetAnchorsByMemory(memoryID string) ([]memory.CodeAnchor
 }
 
 // FindMemoriesByAnchor finds memories at a specific file and line
-func (s *SQLiteStorage) FindMemoriesByAnchor(file string, line int) ([]memory.Memory, error) {
+func (s *SQLiteStorage) FindMemoriesByAnchor(ctx context.Context, file string, line int) ([]memory.Memory, error) {
 	query := `
 		SELECT DISTINCT m.id, m.project_id, m.content, m.type, m.code_hash, m.is_stale,
 			m.last_verified, m.tags, m.priority, m.retrieval_count, m.created_at, m.updated_at
@@ -411,11 +410,11 @@ func (s *SQLiteStorage) FindMemoriesByAnchor(file string, line int) ([]memory.Me
 		ORDER BY ca.start_line ASC
 	`
 
-	rows, err := s.db.Query(query, file, line, line)
+	rows, err := s.db.QueryContext(ctx, query, file, line, line)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() //nolint:errcheck // cleanup in defer
 
 	var memories []memory.Memory
 	for rows.Next() {
@@ -428,7 +427,6 @@ func (s *SQLiteStorage) FindMemoriesByAnchor(file string, line int) ([]memory.Me
 			&mem.CodeHash, &mem.IsStale, &lastVerified,
 			&tagsJSON, &mem.Priority, &mem.RetrievalCount,
 			&mem.CreatedAt, &mem.UpdatedAt)
-
 		if err != nil {
 			return nil, err
 		}
@@ -444,7 +442,7 @@ func (s *SQLiteStorage) FindMemoriesByAnchor(file string, line int) ([]memory.Me
 }
 
 // FindMemoriesInFile finds all memories anchored to a specific file
-func (s *SQLiteStorage) FindMemoriesInFile(file string) ([]memory.Memory, error) {
+func (s *SQLiteStorage) FindMemoriesInFile(ctx context.Context, file string) ([]memory.Memory, error) {
 	query := `
 		SELECT DISTINCT m.id, m.project_id, m.content, m.type, m.code_hash, m.is_stale,
 			m.last_verified, m.tags, m.priority, m.retrieval_count, m.created_at, m.updated_at
@@ -454,23 +452,23 @@ func (s *SQLiteStorage) FindMemoriesInFile(file string) ([]memory.Memory, error)
 		ORDER BY ca.start_line ASC
 	`
 
-	rows, err := s.db.Query(query, file)
+	rows, err := s.db.QueryContext(ctx, query, file)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() //nolint:errcheck // cleanup in defer
 
 	return s.scanMemories(rows)
 }
 
 // CreateConnection creates a memory connection
-func (s *SQLiteStorage) CreateConnection(conn *memory.MemoryConnection) error {
+func (s *SQLiteStorage) CreateConnection(ctx context.Context, conn *memory.MemoryConnection) error {
 	query := `
 		INSERT INTO memory_connections (id, from_memory_id, to_memory_id, relationship, description)
 		VALUES (?, ?, ?, ?, ?)
 	`
 
-	_, err := s.db.Exec(query,
+	_, err := s.db.ExecContext(ctx, query,
 		conn.ID, conn.FromMemoryID, conn.ToMemoryID,
 		conn.Relationship, conn.Description)
 
@@ -478,18 +476,18 @@ func (s *SQLiteStorage) CreateConnection(conn *memory.MemoryConnection) error {
 }
 
 // GetConnections retrieves all connections for a memory
-func (s *SQLiteStorage) GetConnections(memoryID string) ([]memory.MemoryConnection, error) {
+func (s *SQLiteStorage) GetConnections(ctx context.Context, memoryID string) ([]memory.MemoryConnection, error) {
 	query := `
 		SELECT id, from_memory_id, to_memory_id, relationship, description, created_at
 		FROM memory_connections
 		WHERE from_memory_id = ? OR to_memory_id = ?
 	`
 
-	rows, err := s.db.Query(query, memoryID, memoryID)
+	rows, err := s.db.QueryContext(ctx, query, memoryID, memoryID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() //nolint:errcheck // cleanup in defer
 
 	var connections []memory.MemoryConnection
 	for rows.Next() {
@@ -498,7 +496,6 @@ func (s *SQLiteStorage) GetConnections(memoryID string) ([]memory.MemoryConnecti
 
 		err := rows.Scan(&conn.ID, &conn.FromMemoryID, &conn.ToMemoryID,
 			&conn.Relationship, &description, &conn.CreatedAt)
-
 		if err != nil {
 			return nil, err
 		}
@@ -514,7 +511,7 @@ func (s *SQLiteStorage) GetConnections(memoryID string) ([]memory.MemoryConnecti
 }
 
 // GetConnectedMemories retrieves connected memories recursively
-func (s *SQLiteStorage) GetConnectedMemories(memoryID string, depth int) ([]memory.Memory, error) {
+func (s *SQLiteStorage) GetConnectedMemories(ctx context.Context, memoryID string, depth int) ([]memory.Memory, error) {
 	query := `
 		WITH RECURSIVE connected AS (
 			-- Start with direct connections
@@ -536,11 +533,11 @@ func (s *SQLiteStorage) GetConnectedMemories(memoryID string, depth int) ([]memo
 		JOIN connected c ON m.id = c.id
 	`
 
-	rows, err := s.db.Query(query, memoryID, depth)
+	rows, err := s.db.QueryContext(ctx, query, memoryID, depth)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() //nolint:errcheck // cleanup in defer
 
 	var memories []memory.Memory
 	for rows.Next() {
@@ -553,7 +550,6 @@ func (s *SQLiteStorage) GetConnectedMemories(memoryID string, depth int) ([]memo
 			&mem.CodeHash, &mem.IsStale, &lastVerified,
 			&tagsJSON, &mem.Priority, &mem.RetrievalCount,
 			&mem.CreatedAt, &mem.UpdatedAt)
-
 		if err != nil {
 			return nil, err
 		}
@@ -569,20 +565,20 @@ func (s *SQLiteStorage) GetConnectedMemories(memoryID string, depth int) ([]memo
 }
 
 // MarkStale marks a memory as stale or not stale
-func (s *SQLiteStorage) MarkStale(memoryID string, isStale bool) error {
+func (s *SQLiteStorage) MarkStale(ctx context.Context, memoryID string, isStale bool) error {
 	query := `UPDATE memories SET is_stale = ? WHERE id = ?`
-	_, err := s.db.Exec(query, isStale, memoryID)
+	_, err := s.db.ExecContext(ctx, query, isStale, memoryID)
 	return err
 }
 
 // MarkVerified marks a memory as verified (not stale, updates last_verified)
-func (s *SQLiteStorage) MarkVerified(memoryID string) error {
+func (s *SQLiteStorage) MarkVerified(ctx context.Context, memoryID string) error {
 	query := `
 		UPDATE memories
 		SET is_stale = 0, last_verified = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`
-	_, err := s.db.Exec(query, memoryID)
+	_, err := s.db.ExecContext(ctx, query, memoryID)
 	return err
 }
 
@@ -599,7 +595,6 @@ func (s *SQLiteStorage) scanMemories(rows *sql.Rows) ([]memory.Memory, error) {
 			&mem.CodeHash, &mem.IsStale, &lastVerified,
 			&tagsJSON, &mem.Priority, &mem.RetrievalCount,
 			&mem.CreatedAt, &mem.UpdatedAt)
-
 		if err != nil {
 			return nil, err
 		}
@@ -615,7 +610,7 @@ func (s *SQLiteStorage) scanMemories(rows *sql.Rows) ([]memory.Memory, error) {
 }
 
 // GetStaleMemories retrieves all stale memories for a project
-func (s *SQLiteStorage) GetStaleMemories(projectID string) ([]memory.Memory, error) {
+func (s *SQLiteStorage) GetStaleMemories(ctx context.Context, projectID string) ([]memory.Memory, error) {
 	query := `
 		SELECT id, project_id, content, type, code_hash, is_stale, last_verified,
 			tags, priority, retrieval_count, created_at, updated_at
@@ -624,11 +619,11 @@ func (s *SQLiteStorage) GetStaleMemories(projectID string) ([]memory.Memory, err
 		ORDER BY updated_at DESC
 	`
 
-	rows, err := s.db.Query(query, projectID)
+	rows, err := s.db.QueryContext(ctx, query, projectID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() //nolint:errcheck // cleanup in defer
 
 	return s.scanMemories(rows)
 }

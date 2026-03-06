@@ -1,36 +1,26 @@
 package memory
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Memory represents a stored memory with code context
 type Memory struct {
-	// Identity
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project_id"`
-
-	// Content
-	Content string     `json:"content"`
-	Type    MemoryType `json:"type"`
-
-	// Code Location
-	Anchors []CodeAnchor `json:"anchors,omitempty"`
-
-	// Relationships
-	ConnectedTo []string `json:"connected_to,omitempty"` // Memory IDs
-
-	// Metadata
-	Tags     []string `json:"tags,omitempty"`
-	Priority string   `json:"priority"`
-
-	// Change Tracking
-	CodeHash     string     `json:"code_hash,omitempty"`
-	IsStale      bool       `json:"is_stale"`
-	LastVerified *time.Time `json:"last_verified,omitempty"`
-
-	// Usage
-	RetrievalCount int       `json:"retrieval_count"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	UpdatedAt      time.Time    `json:"updated_at"`
+	CreatedAt      time.Time    `json:"created_at"`
+	LastVerified   *time.Time   `json:"last_verified,omitempty"`
+	ProjectID      string       `json:"project_id"`
+	Content        string       `json:"content"`
+	Type           MemoryType   `json:"type"`
+	ID             string       `json:"id"`
+	Priority       string       `json:"priority"`
+	CodeHash       string       `json:"code_hash,omitempty"`
+	Tags           []string     `json:"tags,omitempty"`
+	ConnectedTo    []string     `json:"connected_to,omitempty"`
+	Anchors        []CodeAnchor `json:"anchors,omitempty"`
+	RetrievalCount int          `json:"retrieval_count"`
+	IsStale        bool         `json:"is_stale"`
 }
 
 // MemoryType categorizes the type of knowledge stored
@@ -51,22 +41,22 @@ const (
 // CodeAnchor represents a precise code location
 type CodeAnchor struct {
 	ID        string `json:"id,omitempty"`
-	MemoryID  string `json:"memory_id,omitempty"` // Reference to parent memory
-	File      string `json:"file"`                // Relative path
+	MemoryID  string `json:"memory_id,omitempty"`
+	File      string `json:"file"`
 	Function  string `json:"function,omitempty"`
+	GitCommit string `json:"git_commit,omitempty"`
 	StartLine int    `json:"start_line,omitempty"`
 	EndLine   int    `json:"end_line,omitempty"`
-	GitCommit string `json:"git_commit,omitempty"`
 }
 
 // MemoryConnection represents a relationship between memories
 type MemoryConnection struct {
+	CreatedAt    time.Time      `json:"created_at"`
 	ID           string         `json:"id"`
 	FromMemoryID string         `json:"from_memory_id"`
 	ToMemoryID   string         `json:"to_memory_id"`
 	Relationship ConnectionType `json:"relationship"`
 	Description  string         `json:"description,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
 }
 
 // ConnectionType defines how memories relate
@@ -84,25 +74,25 @@ const (
 type CodeContext struct {
 	File      string
 	Function  string
+	Code      string
 	StartLine int
 	EndLine   int
-	Code      string // Actual code content for hashing
 }
 
 // MemoryWithRelevance includes relevance scoring
-type MemoryWithRelevance struct {
-	Memory    Memory  `json:"memory"`
+type MemoryWithRelevance struct { //nolint:govet // field order for JSON compatibility
 	Relevance float64 `json:"relevance"`
+	Memory    Memory  `json:"memory"`
 	Reason    string  `json:"reason"`
 }
 
 // SearchQuery represents parameters for searching memories
 type SearchQuery struct {
+	Since     *time.Time
 	Query     string
 	ProjectID string
-	Tags      []string
 	Type      MemoryType
-	Since     *time.Time
+	Tags      []string
 	Limit     int
 }
 
@@ -115,34 +105,34 @@ type SearchResult struct {
 // Storage defines the interface for memory storage backends
 type Storage interface {
 	// Initialize sets up the storage (create tables, etc.)
-	Initialize() error
+	Initialize(ctx context.Context) error
 
 	// Close closes the storage connection
 	Close() error
 
 	// Memory CRUD
-	Create(mem *Memory) error
-	Get(id string) (*Memory, error)
-	Update(mem *Memory) error
-	Delete(id string) error
+	Create(ctx context.Context, mem *Memory) error
+	Get(ctx context.Context, id string) (*Memory, error)
+	Update(ctx context.Context, mem *Memory) error
+	Delete(ctx context.Context, id string) error
 
 	// Search and retrieval
-	Search(query SearchQuery) ([]SearchResult, error)
-	List(projectID string, limit int, tags []string) ([]Memory, error)
+	Search(ctx context.Context, query *SearchQuery) ([]SearchResult, error)
+	List(ctx context.Context, projectID string, limit int, tags []string) ([]Memory, error)
 
 	// Code anchors
-	CreateAnchor(anchor *CodeAnchor) error
-	GetAnchorsByMemory(memoryID string) ([]CodeAnchor, error)
-	FindMemoriesByAnchor(file string, line int) ([]Memory, error)
-	FindMemoriesInFile(file string) ([]Memory, error)
+	CreateAnchor(ctx context.Context, anchor *CodeAnchor) error
+	GetAnchorsByMemory(ctx context.Context, memoryID string) ([]CodeAnchor, error)
+	FindMemoriesByAnchor(ctx context.Context, file string, line int) ([]Memory, error)
+	FindMemoriesInFile(ctx context.Context, file string) ([]Memory, error)
 
 	// Memory connections
-	CreateConnection(conn *MemoryConnection) error
-	GetConnections(memoryID string) ([]MemoryConnection, error)
-	GetConnectedMemories(memoryID string, depth int) ([]Memory, error)
+	CreateConnection(ctx context.Context, conn *MemoryConnection) error
+	GetConnections(ctx context.Context, memoryID string) ([]MemoryConnection, error)
+	GetConnectedMemories(ctx context.Context, memoryID string, depth int) ([]Memory, error)
 
 	// Staleness tracking
-	MarkStale(memoryID string, isStale bool) error
-	MarkVerified(memoryID string) error
-	GetStaleMemories(projectID string) ([]Memory, error)
+	MarkStale(ctx context.Context, memoryID string, isStale bool) error
+	MarkVerified(ctx context.Context, memoryID string) error
+	GetStaleMemories(ctx context.Context, projectID string) ([]Memory, error)
 }
